@@ -1,19 +1,8 @@
-#if os(macOS)
 import AVFoundation
 import Foundation
 
-/// Renders a `TransitionSegment` ahead of the hand-over it belongs to.
-///
-/// This is glue, not DSP: the audio comes out of
-/// `OfflineTransitionRenderer.renderMix` — the same graph, the same automation
-/// curves and the same `StemTechniqueLayer` offline `Audition` renders go
-/// through — and everything here does is choose the window, compile a
-/// `.vocalExchange` marker into curves, and note where the two ends of the
-/// result sit on the two songs' clocks.
-///
-/// Cost, on an M4: ~15 s of separation per side plus ~1 s of rendering for a
-/// 15 s overlap. That is why the caller starts it a minute ahead and gives up
-/// on it rather than waiting.
+/// Renders a scored transition ahead of playback using the same audio graph
+/// and automation curves as offline audition.
 enum TransitionSegmentRenderer {
 
     /// How much of the outgoing track the segment duplicates before the out
@@ -35,9 +24,7 @@ enum TransitionSegmentRenderer {
     /// `outgoingRate`, and is byte-identical to what the deck is playing there.
     static let handoff: TimeInterval = TransitionAutomation.segmentHandoff
 
-    /// Longest hand-over worth pre-rendering. Separation is ~1× realtime per
-    /// side; an overlap beyond this would not finish inside the lead time the
-    /// player gives it, and the live path is the better answer.
+    /// Bound the audio buffer and the work a background render may allocate.
     static let maxOverlap: TimeInterval = 30
 
     struct Request: Sendable {
@@ -54,22 +41,19 @@ enum TransitionSegmentRenderer {
         /// segment has to agree with the decks either side of the splice, and
         /// this is the only way it can be told which regime they are in.
         var masterLimiterActive = false
-        /// The outgoing track's analysis, needed only to compile a
-        /// `.vocalExchange` marker. Without it the marker degrades to a duck.
+        /// Analyses place the score on both tracks' bar grids.
         var outgoingAnalysis: TrackAnalysis?
         /// The incoming track's analysis. Only a `TransitionScore` needs it —
         /// the bar grid the score's non-negative bars are addressed on is the
         /// incoming track's. Without it a score cannot compile and the seam
         /// takes the live blend.
         var incomingAnalysis: TrackAnalysis?
-        var config: TransitionPlanner.Config = .standard
     }
 
     enum SegmentError: LocalizedError {
         case noOverlap
         case overlapTooLong(TimeInterval)
         case nothingToRender
-        case stemsNotApplied(String?)
         case scoreNotCompiled(String?)
         case scoreNotApplied(String?)
         case emptyRender
@@ -82,9 +66,7 @@ enum TransitionSegmentRenderer {
                 return String(format: "overlap of %.1fs is longer than the pre-render budget",
                               seconds)
             case .nothingToRender:
-                return "this hand-over asks for neither a stem technique nor a score"
-            case .stemsNotApplied(let reason):
-                return reason ?? "the stem layer did not run"
+                return "this hand-over has no score to render"
             case .scoreNotCompiled(let reason):
                 return reason ?? "the score could not be placed on the beat grid"
             case .scoreNotApplied(let reason):
@@ -95,15 +77,9 @@ enum TransitionSegmentRenderer {
         }
     }
 
-    /// Render one hand-over into a segment. Blocking and slow — call it off the
-    /// main thread, on a task the caller is willing to throw away.
-    static func render(_ request: Request,
-                       provider: @escaping VocalStemProvider,
-                       fullProvider: FullStemProvider? = nil) throws -> TransitionSegment {
-        var planned = try compilingExchange(request)
-        // Set when the compiled score turned out to need the incoming deck
-        // split (`bedIntro`); it changes what "the score played" means below.
-        var scoreSeparates = false
+    /// Render one scored hand-over off the main thread.
+    static func render(_ request: Request) throws -> TransitionSegment {
+        let planned = request.planned
         guard let signature = TransitionSegment.Signature(plan: planned.plan) else {
             throw SegmentError.noOverlap
         }
@@ -112,13 +88,7 @@ enum TransitionSegmentRenderer {
         guard geometry.overlapDuration <= maxOverlap else {
             throw SegmentError.overlapTooLong(geometry.overlapDuration)
         }
-        // Admission, one notch wider than S3's: a segment is worth rendering for
-        // a stem technique **or** for a score. A score-only segment separates
-        // nothing at all — it is ~1 s of rendering and no Metal time — which is
-        // why the runway it asks `PlayerService` for collapses to the margin.
-        guard planned.style.stemTechnique != nil || planned.style.score != nil else {
-            throw SegmentError.nothingToRender
-        }
+        guard planned.style.score != nil else { throw SegmentError.nothingToRender }
 
         var options = OfflineTransitionRenderer.Options()
         options.preRoll = handoff
@@ -136,14 +106,8 @@ enum TransitionSegmentRenderer {
         // being rendered out in full (`Mix.rideDBAtEnd`).
         options.normalizeToLUFS = nil
         options.stretchPostRollForRideRelease = false
-        options.vocalStemProvider = provider
-        options.fullStemProvider = fullProvider
 
-        // `.score` is a marker too, and compiling it is the same job the
-        // exchange's compile is: turn an intent into the curves the final
-        // geometry actually implies. A score that will not place is refused
-        // *here*, before a sample is rendered, so the seam takes the live blend
-        // rather than a segment carrying half a gesture.
+        // Refuse an unplaceable score before rendering any audio.
         if let score = planned.style.score {
             guard let outgoingAnalysis = request.outgoingAnalysis,
                   let incomingAnalysis = request.incomingAnalysis else {
@@ -158,45 +122,13 @@ enum TransitionSegmentRenderer {
                 throw SegmentError.scoreNotCompiled(compiled.refusalReason)
             }
             options.mixLanes = lanes
-            // **The one gesture that separates.** A `bedIntro` compiles to a
-            // stem envelope rather than to whole-mix gain, and the way it
-            // reaches the renderer is the way every envelope reaches it: as a
-            // `.custom` technique on the style. Which also means it cannot
-            // share a hand-over with a stem technique of its own — two
-            // producers writing the same four lanes — so that combination is
-            // refused here as well as filtered out by `ScoreTemplate`.
-            if let envelope = compiled.stemEnvelope {
-                guard planned.style.stemTechnique == nil else {
-                    throw SegmentError.scoreNotCompiled(
-                        "这次转场已经带着 stem 技法，伴奏垫会跟它抢同一批 lane。")
-                }
-                var style = planned.style
-                style.stemTechnique = .custom(envelope)
-                planned = PlannedTransition(plan: planned.plan, style: style,
-                                            rideDB: planned.rideDB)
-                scoreSeparates = true
-            }
         }
 
         let mix = try OfflineTransitionRenderer.renderMix(
             planned, outgoing: request.outgoingURL, incoming: request.incomingURL,
             options: options)
-        // A segment that fell back to a whole-mix render is not worth splicing:
-        // it is the live path with extra steps, and the live path can also be
-        // seeked, paused and re-planned.
-        if planned.style.stemTechnique != nil {
-            guard mix.stemApplied != nil else {
-                throw SegmentError.stemsNotApplied(mix.stemFallbackReason)
-            }
-        }
-        // A score that owns the gain law has to have had its lanes applied; a
-        // decorating one wrote no lanes at all and is proved by its stem
-        // envelope instead. Asking the wrong question of either would reject a
-        // segment that is exactly right.
-        if let score = planned.style.score, score.ownsSeam, !scoreSeparates {
-            guard mix.lanesApplied != nil else {
-                throw SegmentError.scoreNotApplied(mix.scoreFallbackReason)
-            }
+        guard mix.lanesApplied != nil else {
+            throw SegmentError.scoreNotApplied(mix.scoreFallbackReason)
         }
         guard let buffer = makeBuffer(mix) else { throw SegmentError.emptyRender }
 
@@ -229,30 +161,6 @@ enum TransitionSegmentRenderer {
             : min(max(p.bassSwapOffset, 0.8), geometry.overlapDuration)
     }
 
-    /// `.vocalExchange` is a marker, not a curve: it has to be compiled against
-    /// the final geometry before anything can render it. This is the same call
-    /// `Audition.decide` makes for the console, so the player and the tuning
-    /// loop compile the same hand-over the same way.
-    private static func compilingExchange(_ request: Request) throws -> PlannedTransition {
-        let planned = request.planned
-        guard planned.style.stemTechnique == .vocalExchange else { return planned }
-        guard let analysis = request.outgoingAnalysis else {
-            // No analysis, no contour and no lyric timing to aim at. The
-            // planner's own degradation is a plain duck.
-            var style = planned.style
-            style.stemTechnique = .vocalDuck(
-                depthDB: Float(-abs(request.config.stemDuckDepthDB)))
-            return PlannedTransition(plan: planned.plan, style: style, rideDB: planned.rideDB)
-        }
-        let compiled = Audition.VocalExchange.compile(
-            outgoingURL: request.outgoingURL, incomingURL: request.incomingURL,
-            outgoing: analysis,
-            planned: planned, config: request.config)
-        var style = planned.style
-        style.stemTechnique = compiled.technique
-        return PlannedTransition(plan: planned.plan, style: style, rideDB: planned.rideDB)
-    }
-
     private static func makeBuffer(_ mix: OfflineTransitionRenderer.Mix) -> AVAudioPCMBuffer? {
         let format = DeckChain.format
         guard let frames = mix.channels.first?.count, frames > 0,
@@ -270,4 +178,3 @@ enum TransitionSegmentRenderer {
         return buffer
     }
 }
-#endif

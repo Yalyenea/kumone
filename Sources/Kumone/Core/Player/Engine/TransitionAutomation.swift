@@ -1,4 +1,3 @@
-#if os(macOS)
 import Foundation
 
 /// The transition's parameter curves, as a pure function of time.
@@ -29,10 +28,6 @@ enum TransitionAutomation {
     static let bassCutDB: Float = -24
     /// Staged hand-over: how far the mid / high bands duck at full cut.
     static let midCutDB: Float = -18
-    /// Live stand-in for a stem-level vocal duck until S3's pre-render path
-    /// exists: how far the outgoing mid band drops when the plan carries a
-    /// stem technique.
-    static let stemApproxDuckDB: Float = -7
     static let highCutDB: Float = -24
     /// `.filterSweep` end points; the sweep is logarithmic between them.
     static let sweepStartHz: Float = 20
@@ -219,9 +214,9 @@ enum TransitionAutomation {
         /// Closed form, because the smoothstep is a polynomial: with
         /// u = (t − start)/G, ∫₀ᵘ (3x² − 2x³) dx = u³ − u⁴/2. Anything that has
         /// to put an overlap-relative instant on the incoming song's own clock
-        /// needs this — the stem layer's separation window and its lane→sample
+        /// needs this — the gain layer's audio window and its lane→sample
         /// map above all, where treating the glide as a constant rate would
-        /// misplace a compiled vocal hand-over by hundreds of milliseconds.
+        /// misplace a compiled gain event by hundreds of milliseconds.
         func sourceAdvance(to t: TimeInterval) -> TimeInterval {
             let t = Swift.max(0, t)
             let flat = Swift.min(t, start)
@@ -463,17 +458,9 @@ enum TransitionAutomation {
         frame(plan: plan, style: style, elapsed: elapsed, geometry: Geometry(plan: plan))
     }
 
-    /// Geometry-injecting overload, so a caller stepping a whole transition
-    /// does not recompute the landmarks 50 times a second.
-    ///
-    /// `approximateStems` is the live engine's stand-in for a stem technique
-    /// it cannot perform (see below). Pass false when the deck really is being
-    /// fed separated stems — a pre-rendered segment, or an offline render with
-    /// a separator wired up — or the duck lands *on top of* the technique it
-    /// was only ever meant to imitate.
+    /// Reuse geometry while stepping the transition on its control clock.
     static func frame(plan: TransitionPlan, style: TransitionStyle,
-                      elapsed: TimeInterval, geometry: Geometry,
-                      approximateStems: Bool = true) -> Frame {
+                      elapsed: TimeInterval, geometry: Geometry) -> Frame {
         var f = Frame()
         guard case .gapless = plan else {
             let duration = geometry.overlapDuration
@@ -501,19 +488,7 @@ enum TransitionAutomation {
                                               geometry: geometry, elapsed: t)
             if let dominant { f.incoming.fader = dominant.incoming }
 
-            // Outgoing fader: how the track leaves is the style's whole point.
-            //
-            // …unless a separated vocal is being carried over the exit. A
-            // filter sweep hollows the outgoing deck out from 20 Hz upward
-            // across the whole overlap and an echo throw cuts it to −60 dB at
-            // `echoStopOffset`; both land on the voice the exchange promised to
-            // hold, and neither can be compensated from a lane that sits
-            // upstream of the EQ. So a compensated exchange leaves by the plain
-            // equal-power fade, which the vocal lane *can* cancel. Whole-mix
-            // hand-overs (no separated audio) keep their styled exit.
-            let outro: TransitionStyle.OutroEffect =
-                (!approximateStems && vocalHold(style) != nil) ? .fade : style.outroEffect
-            switch outro {
+            switch style.outroEffect {
             case .fade:
                 // Equal-power fade (mixer volume stays the user's).
                 f.outgoing.fader = dominant?.outgoing ?? cos(progress * .pi / 2)
@@ -529,21 +504,7 @@ enum TransitionAutomation {
                 applyEchoOut(&f, style: style, geometry: geometry, elapsed: t)
             }
 
-            applyEQHandover(&f, plan: plan, style: style, geometry: geometry, elapsed: t,
-                            separated: !approximateStems)
-
-            // Live approximation of the vocal-facing stem techniques, for the
-            // hand-overs that get no separated audio: a mid-band duck on the
-            // outgoing deck, the 900 Hz parametric band carrying most vocal
-            // presence. Crude next to a real separated duck, but audibly the
-            // right direction. It engages only when the planner explicitly
-            // chose a stem technique *and* nothing is going to perform it —
-            // no separator installed, or the pre-render did not finish in time.
-            if style.stemTechnique != nil, approximateStems {
-                let edge = Float(min(1, t / 0.5))
-                f.outgoing.midGain = min(f.outgoing.midGain,
-                                         Self.stemApproxDuckDB * edge)
-            }
+            applyEQHandover(&f, plan: plan, style: style, geometry: geometry, elapsed: t)
 
             f.midpointReached = progress >= 0.5
             if case .beatMatched(let p) = plan {
@@ -728,8 +689,7 @@ enum TransitionAutomation {
     /// `.plain` sounds exactly as it did.
     private static func applyEQHandover(_ f: inout Frame, plan: TransitionPlan,
                                         style: TransitionStyle, geometry: Geometry,
-                                        elapsed t: TimeInterval,
-                                        separated: Bool = false) {
+                                        elapsed t: TimeInterval) {
         let duration = geometry.overlapDuration
         let swapAt = geometry.swapOffset
 
@@ -758,70 +718,13 @@ enum TransitionAutomation {
         let lowOutP = ramp(t, from: swapAt - swapRamp, to: swapAt)
         let lowInP = ramp(t, from: swapAt, to: swapAt + swapRamp)
 
-        // **The outgoing voice is not attenuated while it is still singing.**
-        //
-        // The two stages above that carry a voice — the highs (sibilance,
-        // consonants, air) and the mids (the 900 Hz band the vocal body sits
-        // in) — are the ones a carried-over singer is audible through, and by
-        // construction they are both finished long before the vocal is: the
-        // high stage lands at 0.45·S and the mid stage at 0.85·S, while a
-        // carryover's line runs to L > S. The outgoing vocal lane is
-        // fader-compensated, but it is summed into the deck's source buffer
-        // upstream of the deck's EQ, so nothing it can write undoes this: the
-        // hold has to happen here. See `TransitionStyle.outgoingVocalHoldUntil`.
-        //
-        // The **low** stage deliberately keeps its S timing. The bass belongs
-        // to the floor swap — it is what the swap *is*, and two low ends at
-        // once is the one layering error a hand-over exists to avoid — and a
-        // separated vocal lane has almost no energy down there, so holding it
-        // would buy the singer nothing and cost the seam its whole point.
-        //
-        // The incoming mirror is untouched for the same reason: it is the other
-        // half of the floor swap, not a statement about the outgoing voice.
-        var outHighP = highP
-        var outMidP = midP
-        // …and only where there *is* a separated voice to protect: the hold
-        // is a statement about a vocal lane, and a deck that is playing the
-        // whole mix has none. The live engine's tick is always the whole mix
-        // (`approximateStems`), so the fallback path — a segment that did not
-        // arrive in time — keeps today's curves exactly.
-        if separated, let hold = vocalHold(style), hold > 0 {
-            let held = Swift.min(hold, duration)
-            // Start where the voice actually leaves, and take the same short
-            // window the low swap takes — long enough not to be a step at 50 Hz
-            // and short enough that the cut is done before the deck is gone.
-            let highStart = Swift.max(0, held)
-            let highEnd = Swift.min(duration, Swift.max(highStageEnd, highStart + swapRamp))
-            let midStart = Swift.max(midStageStart, held)
-            let midEnd = Swift.min(duration, Swift.max(midStageEnd, midStart + swapRamp))
-            outHighP = ramp(t, from: highStart, to: highEnd)
-            outMidP = ramp(t, from: midStart, to: midEnd)
-        }
-
-        f.outgoing.highGain = highCutDB * outHighP
-        f.outgoing.midGain = midCutDB * outMidP
+        f.outgoing.highGain = highCutDB * highP
+        f.outgoing.midGain = midCutDB * midP
         f.outgoing.lowGain = bassCutDB * lowOutP
 
         f.incoming.highGain = highCutDB * (1 - highP)
         f.incoming.midGain = midCutDB * (1 - midP)
         f.incoming.lowGain = bassCutDB * (1 - lowInP)
-    }
-
-    /// How long the outgoing voice is held un-attenuated, for this style.
-    ///
-    /// The compiled answer first (`TransitionStyle.outgoingVocalHoldUntil`,
-    /// written by the exchange compile, which knows L and the cross exactly),
-    /// and behind it the curve's own answer for a `compensated` envelope that
-    /// reached us from somewhere else — a score's `bedIntro`, an AI's
-    /// hand-written lanes. A lane that carries fader compensation is, by
-    /// definition, a lane that means to be heard over a fade; the staged EQ has
-    /// to be told the same thing. Uncompensated envelopes are left alone: they
-    /// are ordinary offsets on top of the hand-over, not claims about a voice.
-    static func vocalHold(_ style: TransitionStyle) -> TimeInterval? {
-        if let hold = style.outgoingVocalHoldUntil { return hold }
-        guard case .custom(let envelope)? = style.stemTechnique,
-              envelope.compensated else { return nil }
-        return envelope.outgoingVocalHoldUntil
     }
 
     // MARK: - Settling
@@ -896,4 +799,3 @@ enum TransitionAutomation {
         return s
     }
 }
-#endif

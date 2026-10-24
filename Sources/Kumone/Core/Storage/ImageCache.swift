@@ -24,13 +24,9 @@ actor ImageCache {
         self.directory = directory
         self.session = session
         self.offlineArtwork = offlineArtwork
-        #if os(macOS)
         // Small decoded covers for a large playlist can fit within the byte
         // budget; avoid evicting them after scrolling only a few hundred songs.
         memory.countLimit = 2_000
-        #else
-        memory.countLimit = 300
-        #endif
         memory.totalCostLimit = 64 * 1024 * 1024
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     }
@@ -120,20 +116,12 @@ actor ImageCache {
     }
 
     private static func platformImage(_ image: CGImage) -> PlatformImage {
-        #if os(macOS)
         return PlatformImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
-        #else
-        return PlatformImage(cgImage: image)
-        #endif
     }
 
     private static func preview(_ image: PlatformImage, for url: URL) -> PlatformImage? {
         guard let limit = thumbnailLimit(for: url) else { return image }
-        #if os(macOS)
         guard let pixels = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
-        #else
-        guard let pixels = image.cgImage else { return nil }
-        #endif
         guard max(pixels.width, pixels.height) > limit else { return image }
         let scale = Double(limit) / Double(max(pixels.width, pixels.height))
         let width = max(1, Int(Double(pixels.width) * scale))
@@ -144,11 +132,7 @@ actor ImageCache {
         context.interpolationQuality = .high
         context.draw(pixels, in: CGRect(x: 0, y: 0, width: width, height: height))
         guard let thumbnail = context.makeImage() else { return nil }
-        #if os(macOS)
         return platformImage(thumbnail)
-        #else
-        return PlatformImage(cgImage: thumbnail, scale: 1, orientation: image.imageOrientation)
-        #endif
     }
 
     private func cachedVariant(for url: URL) -> PlatformImage? {
@@ -241,9 +225,7 @@ struct CachedAsyncImage<Placeholder: View>: View {
         self.url = url
         self.animated = animated
         self.placeholder = placeholder
-        // Seed from the in-memory cache so a re-created view (e.g. the iOS 26
-        // tab-bar accessory rebuilt on a tab switch, #46) shows already-decoded
-        // artwork immediately instead of flashing the placeholder.
+        // Recreated views display decoded artwork immediately from memory.
         let seeded = url.flatMap { ImageCache.shared.cachedImage(for: $0) }
         _imageState = State(initialValue: CachedImageState(url: url, image: seeded))
     }

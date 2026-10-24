@@ -62,11 +62,7 @@ actor SyncRepository {
     func restore(bookmark: Data, connectionID: UUID) throws -> Data {
         disconnect()
         var stale = false
-        #if os(macOS)
         let options: URL.BookmarkResolutionOptions = [.withSecurityScope, .withoutUI]
-        #else
-        let options: URL.BookmarkResolutionOptions = .withoutUI
-        #endif
         let url: URL
         do {
             url = try URL(resolvingBookmarkData: bookmark, options: options, bookmarkDataIsStale: &stale)
@@ -92,11 +88,7 @@ actor SyncRepository {
         try validateRepository(at: root)
         let bookmark: Data
         do {
-            #if os(macOS)
             bookmark = try root.bookmarkData(options: .withSecurityScope)
-            #else
-            bookmark = try root.bookmarkData(options: .minimalBookmark)
-            #endif
         } catch {
             let failure = error as NSError
             log.error("Could not save directory authorization: \(failure.domain, privacy: .public) (\(failure.code)): \(failure.localizedDescription, privacy: .public)")

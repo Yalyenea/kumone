@@ -1,14 +1,9 @@
-#if os(macOS)
 import Foundation
 
 /// Persists Netease's timed lyrics as a plain `.lrc` next to the cached audio.
 ///
-/// `Audition.VocalExchange.compile` decides where the vocal changes hands by
-/// asking `Audition.Lyrics.load(for:)` where the outgoing line ends — and that
-/// reads a `.lrc` sidecar off disk. The tuning corpus has those files; the app
-/// never wrote one, so in the app a `vocalExchange` had no words to work with
-/// and always degraded to the vocal-trough hand-over. The lyrics were already
-/// being fetched for the lyrics panel; they just stayed in memory.
+/// Transition planning reads complete lyric line ends from this sidecar.
+/// The same lyrics are fetched for the lyrics panel and persisted verbatim.
 ///
 /// The raw LRC body goes to disk verbatim. `Audition.Lyrics.parse` already
 /// knows about multi-timestamp lines and credit blocks, so re-serialising the
@@ -43,8 +38,7 @@ enum LyricsSidecar {
         // bytes only churns the cache directory's mtimes.
         if let existing = try? Data(contentsOf: url), existing == data { return true }
 
-        // Temp file + rename, like `VocalStemCache.write`: a reader of a
-        // half-written `.lrc` would parse a truncated last line as gospel.
+        // Write fully before renaming so a reader cannot parse a partial line.
         let temporary = url.deletingLastPathComponent()
             .appendingPathComponent(".\(UUID().uuidString).lrc")
         do {
@@ -73,4 +67,3 @@ enum LyricsSidecar {
         write(response.lrc?.lyric, for: audio)
     }
 }
-#endif

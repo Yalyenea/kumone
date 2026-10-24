@@ -34,10 +34,6 @@ struct TrackRow: View {
     @EnvironmentObject private var player: PlayerService
     @EnvironmentObject private var account: AccountStore
     @Environment(\.openDestination) private var openDestination
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    @ScaledMetric(relativeTo: .body) private var compactArtworkSize: CGFloat = 48
-    @ScaledMetric(relativeTo: .body) private var compactRowHeight: CGFloat = 64
-    @ScaledMetric(relativeTo: .body) private var compactAlbumRowHeight: CGFloat = 50
     // Native cells retain this view graph when rebound to another song. Scope
     // transient state and asynchronous completions to the song they belong to.
     @State private var hoveredTrackID: Int?
@@ -70,27 +66,15 @@ struct TrackRow: View {
     private var needsNetwork: Bool { downloadState.needsNetwork }
     private var showsArtwork: Bool { style != .albumTrack }
 
-    private var hidesLeadingIndex: Bool {
-        #if os(iOS)
-        return isCompact && showsArtwork
-        #else
-        return false
-        #endif
-    }
 
-    private var isCompact: Bool {
-        #if os(iOS)
-        return UIDevice.current.userInterfaceIdiom == .phone || horizontalSizeClass == .compact
-        #else
-        return false
-        #endif
-    }
+
+
 
     var body: some View {
         HStack(spacing: 12) {
-            if !hidesLeadingIndex {
+
                 leadingIndicator
-            }
+
 
             if showsArtwork {
                 artwork
@@ -99,10 +83,10 @@ struct TrackRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(track.name)
-                        .font(isCompact ? .callout.weight(.medium) : .system(size: 13, weight: .medium))
+                        .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(isCurrent ? Theme.accent : .primary)
                         .lineLimit(1)
-                    if let subtitle = track.subtitle, !isCompact {
+                    if let subtitle = track.subtitle {
                         Text("(\(subtitle))")
                             .font(.system(size: 12))
                             .foregroundStyle(.tertiary)
@@ -116,7 +100,7 @@ struct TrackRow: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            if style == .full && !isCompact {
+            if style == .full {
                 if track.album.id > 0, !track.album.name.isEmpty {
                     Button {
                         openDestination(.album(track.album.id))
@@ -154,10 +138,10 @@ struct TrackRow: View {
             }
 
             likeAndDuration
-                .padding(.leading, isCompact ? 12 : 0)
+                .padding(.leading, 0)
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, isCompact ? 6 : 5)
+        .padding(.vertical, 5)
         // Keep the row and its virtual scroll extent in agreement (#3).
         .frame(height: rowHeight)
         .opacity(isPlayable && !needsNetwork ? 1 : 0.45)
@@ -171,15 +155,9 @@ struct TrackRow: View {
             // new implicit animation for every row crossed during a scroll.
             hoveredTrackID = hovering ? track.id : nil
         }
-        #if os(macOS)
         .onTapGesture(count: 2) {
             playSelectedTrack()
         }
-        #else
-        .onTapGesture {
-            playSelectedTrack()
-        }
-        #endif
         .contextMenu { contextMenuItems }
         .sheet(item: $addToPlaylistTrack) { selectedTrack in
             AddToPlaylistSheet(track: selectedTrack)
@@ -197,14 +175,6 @@ struct TrackRow: View {
 
     @ViewBuilder
     private var artwork: some View {
-        #if os(iOS)
-        Button(action: onPlay) {
-            artworkImage
-        }
-        .buttonStyle(.plain)
-        .disabled(!isPlayable)
-        .accessibilityLabel("播放：\(track.name)")
-        #else
         if track.album.id > 0, !track.album.name.isEmpty {
             Button {
                 openDestination(.album(track.album.id))
@@ -216,46 +186,23 @@ struct TrackRow: View {
         } else {
             artworkImage
         }
-        #endif
     }
 
     @ViewBuilder
     private var artworkImage: some View {
-        if isCompact {
-            CachedAsyncImage(url: track.album.picUrl?.resizedImageURL(160), animated: false)
-                .frame(width: compactArtworkSize, height: compactArtworkSize)
-                .overlay(alignment: .bottomTrailing) {
-                    if hidesLeadingIndex, isCurrent {
-                        PlayingIndicator(animating: player.isPlaying && !player.showNowPlaying)
-                            .padding(5)
-                            .background(
-                                .ultraThinMaterial,
-                                in: RoundedRectangle(cornerRadius: 7, style: .continuous)
-                            )
-                            .padding(4)
-                    }
-                }
-                .compositingGroup()
-                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.small, style: .continuous))
-        } else {
+
             CachedAsyncImage(url: track.album.picUrl?.resizedImageURL(96), animated: false)
                 .frame(width: 42, height: 42)
                 .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.small, style: .continuous))
-        }
+
     }
 
     @ViewBuilder
     private var artistLinks: some View {
-        #if os(iOS)
-        Text(track.artistNames)
-            .font(isCompact ? .footnote : .system(size: 11.5))
-            .foregroundStyle(.secondary)
-            .lineLimit(1)
-        #else
         let artists = track.artists.filter { $0.id > 0 && !$0.name.isEmpty }
         if artists.isEmpty {
             Text(track.artistNames)
-                .font(isCompact ? .footnote : .system(size: 11.5))
+                .font(.system(size: 11.5))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
         } else {
@@ -273,18 +220,17 @@ struct TrackRow: View {
                     .accessibilityLabel("打开歌手：\(artist.name)")
                 }
             }
-            .font(isCompact ? .footnote : .system(size: 11.5))
+            .font(.system(size: 11.5))
             .foregroundStyle(.secondary)
             .lineLimit(1)
         }
-        #endif
     }
 
     private var rowHeight: CGFloat {
         if style == .albumTrack {
-            return isCompact ? compactAlbumRowHeight : style.desktopRowHeight
+            return style.desktopRowHeight
         }
-        return isCompact ? compactRowHeight : style.desktopRowHeight
+        return style.desktopRowHeight
     }
 
     @ViewBuilder
@@ -310,15 +256,11 @@ struct TrackRow: View {
 
     private var likeAndDuration: some View {
         HStack(spacing: 8) {
-            #if os(macOS)
             // A saved track already keeps the button visible through its own state.
             TrackDownloadButton(track: track, isVisible: isHovering)
                 // Keep download confirmation and in-flight button state bound
                 // to their original song without replacing the whole row.
                 .id(track.id)
-            #else
-            TrackDownloadButton(track: track, isVisible: false)
-            #endif
             let liked = account.isLiked(track.id)
             Button {
                 Task { await account.toggleLike(trackID: track.id) }
@@ -365,7 +307,6 @@ struct TrackRow: View {
                 }
             }
         }
-        #if os(macOS)
         if !account.isLiked(track.id), let onRecommendationReduced {
             Button(String(localized: "减少推荐"), role: .destructive) {
                 guard !isReducingRecommendation else { return }
@@ -384,7 +325,6 @@ struct TrackRow: View {
             }
             .disabled(isReducingRecommendation)
         }
-        #endif
         Divider()
         if track.album.id > 0 {
             Button("查看专辑") {
@@ -426,7 +366,6 @@ struct PlayingIndicator: View {
     }
 }
 
-#if os(macOS)
 private struct SpectrumBars: NSViewRepresentable {
     var animating: Bool
     func makeNSView(context: Context) -> SpectrumBarsView { SpectrumBarsView() }
@@ -437,18 +376,6 @@ private struct SpectrumBars: NSViewRepresentable {
         view.animating = false
     }
 }
-#else
-private struct SpectrumBars: UIViewRepresentable {
-    var animating: Bool
-    func makeUIView(context: Context) -> SpectrumBarsView { SpectrumBarsView() }
-    func updateUIView(_ view: SpectrumBarsView, context: Context) {
-        view.animating = animating
-    }
-    static func dismantleUIView(_ view: SpectrumBarsView, coordinator: ()) {
-        view.animating = false
-    }
-}
-#endif
 
 final class SpectrumBarsView: PlatformView {
     static let minHeight: CGFloat = 3
@@ -461,7 +388,6 @@ final class SpectrumBarsView: PlatformView {
 
     private var bars: [CALayer] = []
     private var timer: Timer?
-    private var startedAt = CACurrentMediaTime()
 
     var animating = false {
         didSet {
@@ -472,9 +398,7 @@ final class SpectrumBarsView: PlatformView {
 
     init() {
         super.init(frame: CGRect(x: 0, y: 0, width: Self.width, height: Self.maxHeight))
-        #if os(macOS)
         wantsLayer = true
-        #endif
         buildBars()
     }
 
@@ -483,7 +407,6 @@ final class SpectrumBarsView: PlatformView {
 
     deinit { timer?.invalidate() }
 
-    /// `NSView.layer` is optional; `UIView.layer` is not.
     private var hostLayer: CALayer? { layer }
 
     private func buildBars() {
@@ -502,17 +425,10 @@ final class SpectrumBarsView: PlatformView {
         apply(scaleForAll: Self.minHeight / Self.maxHeight)
     }
 
-    #if os(macOS)
     override func layout() {
         super.layout()
         positionBars()
     }
-    #else
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        positionBars()
-    }
-    #endif
 
     private func positionBars() {
         for (i, bar) in bars.enumerated() {
@@ -524,7 +440,6 @@ final class SpectrumBarsView: PlatformView {
 
     private func start() {
         guard timer == nil else { return }
-        startedAt = CACurrentMediaTime()
         // Common mode so the bars keep moving while a list is being scrolled.
         let timer = Timer(timeInterval: 1.0 / 30, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
@@ -542,36 +457,17 @@ final class SpectrumBarsView: PlatformView {
     @MainActor
     private func tick() {
         let spectrum = AudioSpectrum.shared
-        let live: Bool
-        switch spectrum.tapState {
-        case .tapped:
-            // Samples may still be a few hundred milliseconds out while the
-            // source buffers. Hold still through that rather than animating,
-            // which reads as a glitch right as a song starts.
-            live = spectrum.isLive
-            guard live else {
-                apply(scaleForAll: Self.minHeight / Self.maxHeight)
-                return
-            }
-        case .untappable:
-            live = false
-        case .idle, .preparing:
-            // Not yet known whether this source can be tapped.
+        guard spectrum.tapState == .tapped, spectrum.isLive else {
             apply(scaleForAll: Self.minHeight / Self.maxHeight)
             return
         }
 
-        let elapsed = CACurrentMediaTime() - startedAt
         let span = Self.maxHeight - Self.minHeight
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         for (i, bar) in bars.enumerated() {
-            // Real band levels when the tap is feeding us; otherwise the old
-            // decorative sine, so untappable sources still look alive.
-            let level = live
-                ? CGFloat(spectrum.level(at: i))
-                : CGFloat(abs(sin(elapsed * 2.4 + Double(i) * 0.9)))
+            let level = CGFloat(spectrum.level(at: i))
             let height = Self.minHeight + span * level
             bar.transform = CATransform3DMakeScale(1, height / Self.maxHeight, 1)
         }
@@ -593,10 +489,8 @@ final class SpectrumBarsView: PlatformView {
 struct TrackListView: View {
     enum Layout {
         case stack
-        #if os(macOS)
         /// One reusable native table cell, retaining the complete playback queue.
         case singleRow(Int)
-        #endif
     }
 
     private let rowSpacing: CGFloat = 1
@@ -623,12 +517,10 @@ struct TrackListView: View {
         switch layout {
         case .stack:
             LazyVStack(spacing: rowSpacing) { rows(in: tracks.indices) }
-        #if os(macOS)
         case .singleRow(let index):
             // The native table already provides one reusable cell. A keyed
             // ForEach here would discard the entire row graph on every reuse.
             row(at: index)
-        #endif
         }
     }
 

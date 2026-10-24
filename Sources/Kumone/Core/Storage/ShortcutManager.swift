@@ -1,4 +1,3 @@
-#if os(macOS)
 import SwiftUI
 import AppKit
 import OSLog
@@ -57,7 +56,7 @@ public struct UserShortcut: Codable, Equatable {
         if modifiers.contains(.option) { str += "⌥" }
         if modifiers.contains(.shift) { str += "⇧" }
         if modifiers.contains(.command) { str += "⌘" }
-        
+
         switch key {
         case " ": str += "Space"
         case "\u{F703}": str += "→"
@@ -167,24 +166,24 @@ enum ShortcutSettingsError: LocalizedError, Equatable {
 @MainActor
 final class ShortcutManager: ObservableObject {
     static let shared = ShortcutManager(userDefaults: .standard, hotKeys: GlobalHotKeyManager.shared)
-    
+
     @Published private var bindings = ShortcutBindings.defaults
     var appShortcuts: [ShortcutAction: UserShortcut] { bindings.app }
     var globalShortcuts: [ShortcutAction: UserShortcut] { bindings.global }
-    
+
     private let userDefaults: UserDefaults
     private let hotKeys: any GlobalShortcutRegistry
     private let logger = Logger(subsystem: "Kumone", category: "Shortcuts")
     static let bindingsKey = "settings.shortcuts"
     private let appPrefix = "settings.shortcut."
     private let globalPrefix = "settings.globalShortcut."
-    
+
     init(userDefaults: UserDefaults, hotKeys: any GlobalShortcutRegistry) {
         self.userDefaults = userDefaults
         self.hotKeys = hotKeys
         loadShortcuts()
     }
-    
+
     private func loadShortcuts() {
         do {
             if let data = userDefaults.data(forKey: Self.bindingsKey) {
@@ -221,7 +220,7 @@ final class ShortcutManager: ObservableObject {
             }
         }
     }
-    
+
     /// 设置快捷键，采用"先注册新快捷键，成功后再替换旧快捷键"策略。
     /// 若系统注册失败，UserDefaults 不会被修改，原有快捷键保持不变。
     func setShortcut(_ shortcut: UserShortcut, for action: ShortcutAction, isGlobal: Bool) throws {
@@ -259,7 +258,7 @@ final class ShortcutManager: ObservableObject {
         userDefaults.set(data, forKey: Self.bindingsKey)
         if bindings != defaults { bindings = defaults }
     }
-    
+
     func shortcut(for action: ShortcutAction, isGlobal: Bool) -> UserShortcut {
         if isGlobal {
             return globalShortcuts[action] ?? .unassigned
@@ -267,17 +266,17 @@ final class ShortcutManager: ObservableObject {
             return appShortcuts[action] ?? action.defaultShortcut
         }
     }
-    
+
     // MARK: - App-internal Key Event Matching (local monitor only)
     // Global hotkeys are handled by GlobalHotKeyManager via Carbon Event Hot Key API.
-    
+
     func handleKeyEvent(_ event: NSEvent) -> Bool {
         let currentModifiers = UserShortcut.ShortcutModifiers(nsFlags: event.modifierFlags)
-        
+
         // We handle some keys only if not editing text
         let editingText = NSApp.keyWindow?.firstResponder is NSText
             || NSApp.keyWindow?.firstResponder is NSTextView
-        
+
         // Match against registered app shortcuts only
         for (action, shortcut) in appShortcuts where !shortcut.key.isEmpty {
             if editingText {
@@ -285,16 +284,16 @@ final class ShortcutManager: ObservableObject {
                     continue
                 }
             }
-            
+
             if event.charactersIgnoringModifiers == shortcut.key && currentModifiers == shortcut.modifiers {
                 executeAction(action)
                 return true
             }
         }
-        
+
         return false
     }
-    
+
     func executeAction(_ action: ShortcutAction) {
         Task { @MainActor in
             let player = PlayerService.shared
@@ -329,4 +328,3 @@ final class ShortcutManager: ObservableObject {
         }
     }
 }
-#endif

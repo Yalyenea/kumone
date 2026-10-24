@@ -67,10 +67,8 @@ struct RecentsView: View {
             LazyVStack(spacing: 1) {
                 ForEach(Array(records.enumerated()), id: \.element.song.id) { index, _ in recordRow(at: index) }
             }
-        #if os(macOS)
         case .singleRow(let index):
             recordRow(at: index)
-        #endif
         }
     }
 

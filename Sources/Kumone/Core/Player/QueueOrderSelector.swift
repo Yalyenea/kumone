@@ -1,4 +1,3 @@
-#if os(macOS)
 import Foundation
 
 // The stateful half of the AutoMix queue-reorder mode
@@ -332,7 +331,7 @@ final class QueueOrderSelector {
             // The planner *is* the scorer: whatever hand-over it can build for
             // this pair is what the pair is worth (predev §2.3).
             let planned = TransitionPlanner.plan(
-                outgoing: outgoingAnalysis, incoming: incoming, stems: .none,
+                outgoing: outgoingAnalysis, incoming: incoming,
                 config: plannerConfig,
                 context: .init(outgoingLyricLineEnds: outgoingLyricLineEnds))
             byID[track.id] = track
@@ -433,7 +432,7 @@ final class QueueOrderSelector {
             for id in pool {
                 guard let incoming = input.analyses[id] else { continue }
                 let planned = TransitionPlanner.plan(
-                    outgoing: outgoing, incoming: incoming, stems: .none,
+                    outgoing: outgoing, incoming: incoming,
                     config: input.plannerConfig,
                     context: .init(outgoingLyricLineEnds: []))
                 scored.append((id, QueueOrderScorer.score(
@@ -651,4 +650,3 @@ extension Duration {
         return Double(parts.seconds) * 1000 + Double(parts.attoseconds) / 1e15
     }
 }
-#endif

@@ -52,8 +52,7 @@ import Foundation
                 outPoint: 150, inPoint: 8, overlapBars: 8,
                 outgoingRate: 1.01, incomingRate: 0.99,
                 bassSwapOffset: 8, overlapDuration: 16)),
-            style: TransitionStyle(outroEffect: .filterSweep, stagedEQ: true,
-                                   stemTechnique: .vocalDuck(depthDB: -9)),
+            style: TransitionStyle(outroEffect: .filterSweep, stagedEQ: true),
             rideDB: -1.5)
         let outgoing = analysis(sections: [section(.chorus, 130, 170, repetition: 3)])
         let plan = AutoMixDebugPlan(planned: planned, outgoing: outgoing,
@@ -67,7 +66,6 @@ import Foundation
         #expect(plan.outgoingRate == 1.01)
         #expect(plan.outroEffect == "filterSweep")
         #expect(plan.stagedEQ)
-        #expect(plan.stemTechnique == "vocalDuck(-9.0dB)")
         #expect(plan.rideDB == -1.5)
         // The out point sits inside the final chorus, and the panel says so.
         #expect(plan.outSection?.hasPrefix("chorus") == true)
@@ -301,16 +299,11 @@ import Foundation
             standard, overrides: AutoMixOverrides(disableTempoRamp: true))
         #expect(!ramp.tempoRampEnabled)
         #expect(ramp.dominantDeckBlend == standard.dominantDeckBlend)
-        #expect(ramp.twoClockExchange == standard.twoClockExchange)
 
         let blend = AutoMixDebugOverrides.plannerConfig(
             standard, overrides: AutoMixOverrides(disableDominantDeckBlend: true))
         #expect(!blend.dominantDeckBlend)
         #expect(blend.tempoRampEnabled == standard.tempoRampEnabled)
-
-        let exchange = AutoMixDebugOverrides.plannerConfig(
-            standard, overrides: AutoMixOverrides(disableTwoClockExchange: true))
-        #expect(!exchange.twoClockExchange)
 
         // `forceLivePath` is not a planner knob at all: it short-circuits the
         // pre-render, so the config must come back untouched.
@@ -332,8 +325,8 @@ import Foundation
 
         let all = AutoMixOverrides(
             forceBeatMatch: true, disableTempoRamp: true, disableDominantDeckBlend: true,
-            disableTwoClockExchange: true, forceLivePath: true)
-        #expect(all.badges.count == 5)
+            forceLivePath: true)
+        #expect(all.badges.count == 4)
         #expect(all.needsReArm(comparedTo: AutoMixOverrides()))
         #expect(!AutoMixOverrides(forceBeatMatch: true)
             .needsReArm(comparedTo: AutoMixOverrides()))
@@ -366,18 +359,18 @@ import Foundation
         #expect(abs(deep.lead - (13 + 8 / 0.3)) < 0.001)
     }
 
-    @Test func anUnrenderedStemSeamWaitsForItsRunway() {
+    @Test func anUnrenderedSeamWaitsForItsRunway() {
         let result = AutoMixSeamJump.compute(.init(
-            outPoint: 200, needsStemPrerender: true, segmentArmed: false,
+            outPoint: 200, needsPrerender: true, segmentArmed: false,
             prerenderLead: 60, prerenderHandoff: 0.5))
         #expect(abs(result.lead - 60.5) < 0.001)
-        #expect(result.reason.hasPrefix("stem pre-render runway"))
+        #expect(result.reason.hasPrefix("transition pre-render runway"))
         #expect(!result.losesPrerender)
 
         // Already rendered and armed: the runway is spent, so the floor is
         // enough and the listener gets to the seam sooner.
         let armed = AutoMixSeamJump.compute(.init(
-            outPoint: 200, needsStemPrerender: true, segmentArmed: true,
+            outPoint: 200, needsPrerender: true, segmentArmed: true,
             prerenderLead: 60, prerenderHandoff: 0.5))
         #expect(armed.lead == AutoMixSeamJump.floorLead)
     }
@@ -385,7 +378,7 @@ import Foundation
     @Test func aShortTrackClampsAndSaysWhatThatCosts() {
         // The out point is 40 s in; a 60.5 s runway does not fit before it.
         let result = AutoMixSeamJump.compute(.init(
-            outPoint: 40, needsStemPrerender: true, segmentArmed: false,
+            outPoint: 40, needsPrerender: true, segmentArmed: false,
             prerenderLead: 60, prerenderHandoff: 0.5))
         #expect(result.target == 0)
         #expect(result.lead == 40)
@@ -407,7 +400,7 @@ import Foundation
                 planned: .plain(.crossfade(duration: 6, outPoint: 150, inPoint: 0)),
                 outgoing: nil, incoming: nil)),
             executed: .init(kind: "gapless", outPoint: nil, overlap: 0),
-            gesture: "vocalExchange",
+            gesture: "cutOnOne",
             path: "liveOverlap",
             overrides: ["forceBeatMatch"],
             config: "deadbeef")
@@ -427,7 +420,7 @@ import Foundation
         #expect(decoded.incoming?.title == "B")
         #expect(decoded.planned?.outPoint == 150)
         #expect(decoded.executed?.kind == "gapless")
-        #expect(decoded.gesture == "vocalExchange")
+        #expect(decoded.gesture == "cutOnOne")
         #expect(decoded.path == "liveOverlap")
         #expect(decoded.overrides == ["forceBeatMatch"])
         #expect(decoded.config == "deadbeef")

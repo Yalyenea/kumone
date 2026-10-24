@@ -11,7 +11,6 @@ struct TrackListScrollView<Header: View, Rows: View, Footer: View>: View {
     @ViewBuilder var footer: () -> Footer
 
     var body: some View {
-        #if os(macOS)
         TrackTable(
             trackIDs: trackIDs,
             header: AnyView(header().padding(.bottom, spacing)),
@@ -21,14 +20,5 @@ struct TrackListScrollView<Header: View, Rows: View, Footer: View>: View {
             AnyView(rows(.singleRow(index)))
         }
         .clipped()
-        #else
-        ScrollView {
-            VStack(alignment: .leading, spacing: spacing) {
-                header()
-                if !trackIDs.isEmpty { rows(.stack) }
-                footer()
-            }
-        }
-        #endif
     }
 }

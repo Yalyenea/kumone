@@ -1,10 +1,9 @@
-#if os(macOS) && DEBUG
+#if DEBUG
 import AppKit
 import SwiftUI
 
 // A developer window for listening tests: what AutoMix is doing, right now,
-// without tailing a log while trying to hear a seam. macOS only — there is no
-// AutoMix on iOS (every plan is `.gapless`), so there is nothing to watch.
+// without tailing a log while trying to hear a seam.
 //
 // DEBUG builds only (as is its menu and window scene in `KumoneApp`).
 // `Scripts/build-app.sh` defaults to the `debug` configuration, so the builds
@@ -241,8 +240,7 @@ struct AutoMixDebugPanel: View {
                     DebugRow("rates", String(format: "out ×%.4f · in ×%.4f", out, incoming))
                 }
                 DebugRow("style", plan.outroEffect
-                         + (plan.stagedEQ ? " · stagedEQ" : "")
-                         + (plan.stemTechnique.map { " · \($0)" } ?? ""))
+                         + (plan.stagedEQ ? " · stagedEQ" : ""))
                 // Only ever present with the score toggle on, and only ever
                 // *offered*: the live path blends, so what this row promises is
                 // conditional on the pre-render row below it.
@@ -310,7 +308,6 @@ struct AutoMixDebugPanel: View {
             }
             overrideToggle("Disable tempo ramp", \.disableTempoRamp)
             overrideToggle("Disable dominant-deck blend", \.disableDominantDeckBlend)
-            overrideToggle("Disable two-clock exchange", \.disableTwoClockExchange)
             overrideToggle("Transition score (cut / throw / tension cut / bed)", \.enableScore)
             overrideToggle("Intent layer (material decides the family)", \.enableIntent)
             if model.overrides.enableScore {
@@ -341,7 +338,7 @@ struct AutoMixDebugPanel: View {
                         + " deck is no longer ducked 4–7 dB for the 15–25 s before a seam",
                     DeckChain.masterCeilingDBFS))
             }
-            overrideToggle("Force live path (no stem pre-render)", \.forceLivePath)
+            overrideToggle("Force live path (no score pre-render)", \.forceLivePath)
             overrideToggle("Verbose engine trace (knob ring + stall watchdog)",
                            \.verboseEngineTrace)
             if model.overrides.verboseEngineTrace {
@@ -503,7 +500,7 @@ struct AutoMixDebugPanel: View {
     }
 
     private var prerenderGroup: some View {
-        DebugGroup("Stem pre-render") {
+        DebugGroup("Transition pre-render") {
             DebugRow("state", model.snapshot.prerender.label)
         }
     }
@@ -524,7 +521,6 @@ struct AutoMixDebugPanel: View {
                         DebugRow("planned", seam.planned.map {
                             "\($0.kind) · out " + AutoMixDebugFormat.clock($0.outPoint)
                                 + String(format: " · overlap %.2fs", $0.overlap)
-                                + ($0.stemTechnique.map { " · \($0)" } ?? "")
                                 + ($0.score.map { " · score=\($0)" } ?? "")
                                 + ($0.aim.map { " · \($0)" } ?? "")
                         } ?? "—")

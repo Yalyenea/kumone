@@ -19,23 +19,13 @@ BUILD_NUMBER="1"
 [ -n "$ENV_MARKETING_VERSION" ] && MARKETING_VERSION="$ENV_MARKETING_VERSION"
 [ -n "$ENV_BUILD_NUMBER" ] && BUILD_NUMBER="$ENV_BUILD_NUMBER"
 
-SPARKLE_FEED_URL="https://github.com/missuo/kumone/releases/latest/download/appcast.xml"
-SPARKLE_PUBLIC_ED_KEY="RHEhllstUuuVrVDCPGrbhg/8LivSzpuZB9X3u3xdV5o="
-
 BUILD_DIR="$ROOT/.build/app"
 APP_BUNDLE="$BUILD_DIR/$APP_NAME.app"
 
-# ARCHES="arm64 x86_64" builds a universal binary (CI release); default is
-# the host architecture for fast dev loops. Each architecture is built on its
-# own and the slices are joined with lipo: a multi-`--arch` SwiftPM build
-# switches to XCBuild, which compiles mlx-swift's .metal sources and so needs
-# a Metal Toolchain that GitHub's runners do not reliably provide. The
-# kernels come from the pinned, sha-checked fetch below instead.
+# ARCHES="arm64 x86_64" builds a universal binary; default is the host architecture.
+# Build each architecture separately and join the slices with lipo.
 
-# Extra SwiftPM flags from the environment, e.g. on a Command-Line-Tools-only
-# macOS 27 machine: SWIFT_BUILD_FLAGS="--build-system native" together with
-# SDKROOT=…/MacOSX26.5.sdk (the Swift Build backend wants a `metal` compiler
-# CLT does not ship, and the 27 SDK's SwiftUI macros need a plugin it lacks).
+# Extra SwiftPM flags supplied explicitly by the caller.
 EXTRA_FLAGS=()
 for flag in ${SWIFT_BUILD_FLAGS:-}; do
   EXTRA_FLAGS+=("$flag")
@@ -87,72 +77,15 @@ else
 fi
 chmod +x "$APP_BUNDLE/Contents/MacOS/$APP_NAME"
 
-# Embed Sparkle.framework (SwiftPM binary artifact) into Contents/Frameworks.
-SPARKLE_FW="$(find "$ROOT/.build/artifacts" -type d -name 'Sparkle.framework' -path '*macos*' 2>/dev/null | head -n1)"
-if [ -z "$SPARKLE_FW" ]; then
-  echo "ERROR: Sparkle.framework not found under .build/artifacts" >&2
-  exit 1
-fi
-mkdir -p "$APP_BUNDLE/Contents/Frameworks"
-cp -a "$SPARKLE_FW" "$APP_BUNDLE/Contents/Frameworks/"
-
-# MLX's Metal kernels, for AutoMix stem transitions. MLX loads `mlx.metallib`
-# from beside the running binary first, so the app always gets one there.
-# Sources, most specific first:
-#   1. $BIN_PATH/mlx.metallib — placed beside this very configuration's binary
-#      by Scripts/fetch-mlx-metallib.sh (Command Line Tools builds).
-#   2. The kernels SwiftPM compiled in this build — with Xcode (and its Metal
-#      Toolchain) mlx-swift's sources become
-#      $BIN_PATH/mlx-swift_Cmlx.bundle/Contents/Resources/default.metallib and
-#      no file named mlx.metallib exists. Built from the pinned sources by
-#      this same invocation, so it cannot be stale.
-#   3. Any other mlx.metallib under .build (e.g. fetched into another
-#      configuration's directory) — fetch-mlx-metallib.sh sha-checks what it
-#      installs, so this is still the pinned MLX version.
-# Without any of them the app would never pre-render stem hand-overs
-# (StemKit.ResidentStemSeparator.isRunnable says no).
-CMLX_METALLIB="$BIN_PATH/mlx-swift_Cmlx.bundle/Contents/Resources/default.metallib"
-if [ -f "$BIN_PATH/mlx.metallib" ]; then
-  METALLIB="$BIN_PATH/mlx.metallib"
-elif [ -f "$CMLX_METALLIB" ]; then
-  METALLIB="$CMLX_METALLIB"
-else
-  METALLIB="$(find "$ROOT/.build" -name 'mlx.metallib' -not -path "$BUILD_DIR/*" -print -quit 2>/dev/null || true)"
-fi
-if [ -z "$METALLIB" ] && [ "${FETCH_MLX_METALLIB:-0}" = "1" ]; then
-  # CI: fetch the pinned, sha-verified kernels rather than compile them.
-  "$SCRIPT_DIR/fetch-mlx-metallib.sh" "$BIN_PATH"
-  METALLIB="$BIN_PATH/mlx.metallib"
-fi
-if [ -n "$METALLIB" ]; then
-  echo "mlx.metallib <- $METALLIB"
-  cp "$METALLIB" "$APP_BUNDLE/Contents/MacOS/mlx.metallib"
-else
-  # Shipping without the kernels silently disables every stem hand-over and
-  # is indistinguishable from a planner bug in the field (2026-08-31: a day
-  # of "everything falls to stagedEQ" traced back to exactly this). Fail
-  # loudly instead; a clean of .build eats the metallib, and the fix is one
-  # command.
-  echo "error: no mlx.metallib under .build and no compiled Cmlx kernels at" >&2
-  echo "       $CMLX_METALLIB —" >&2
-  echo "       the app would ship with stem separation disabled. Run" >&2
-  echo "       Scripts/fetch-mlx-metallib.sh (after 'swift build -c release" >&2
-  echo "       --product Kumone') first, or with Xcode install the Metal" >&2
-  echo "       Toolchain (xcodebuild -downloadComponent MetalToolchain)." >&2
-  exit 1
-fi
-
 # Localization tables → Bundle.main
 cp "$ROOT/Sources/Kumone/Resources/PrivacyInfo.xcprivacy" "$APP_BUNDLE/Contents/Resources/"
 for lproj in "$ROOT"/Sources/Kumone/Resources/*.lproj; do
   [ -d "$lproj" ] && cp -R "$lproj" "$APP_BUNDLE/Contents/Resources/"
 done
 
-# SwiftPM resource bundles (if any). mlx-swift_Cmlx.bundle only carries the
-# kernels already copied to Contents/MacOS/mlx.metallib above (~100 MB), and
-# MLX finds the colocated copy first, so it is left out.
+# Copy SwiftPM resource bundles, excluding test resources.
 find "$BIN_PATH" -maxdepth 1 -name '*.bundle' -not -name '*Tests*' \
-  -not -name 'mlx-swift_Cmlx.bundle' -print0 |
+  -print0 |
   while IFS= read -r -d '' bundle; do
     cp -R "$bundle" "$APP_BUNDLE/Contents/Resources/"
   done
@@ -219,9 +152,6 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
         <key>NSAllowsArbitraryLoads</key><true/>
     </dict>
     <key>KumoneGitCommit</key><string>$GIT_COMMIT</string>
-    <key>SUFeedURL</key><string>$SPARKLE_FEED_URL</string>
-    <key>SUPublicEDKey</key><string>$SPARKLE_PUBLIC_ED_KEY</string>
-    <key>SUEnableAutomaticChecks</key><true/>
 </dict>
 </plist>
 PLIST

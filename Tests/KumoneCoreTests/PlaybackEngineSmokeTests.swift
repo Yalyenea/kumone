@@ -1207,7 +1207,7 @@ struct PlaybackEngineSmokeTests {
         #expect(later.isNeutral, "'fader open' now means trim × ride (\(later))")
     }
 
-    /// A ride of 0 — every `.plain` hand-over, every AutoMix-off and iOS path —
+    /// A ride of 0 — every `.plain` hand-over, every AutoMix-off path —
     /// must leave the gain path exactly where it was before the ride existed.
     @Test func aZeroRideChangesNothing() async throws {
         guard await audioOutputAvailable.value else { return }

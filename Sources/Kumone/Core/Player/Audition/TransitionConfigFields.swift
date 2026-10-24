@@ -1,4 +1,3 @@
-#if os(macOS)
 import Foundation
 
 // The tuning surface's description of `TransitionPlanner.Config`: one entry
@@ -239,92 +238,35 @@ extension TransitionPlanner.Config {
               "回声间隔的上限（秒），太长会拖沓。",
               0.1, 3, 0.01, 2, \.echoDelayMax),
 
-        // --- Stem layer. Only read when人声分离可用；关掉时这四项完全不参与判断。
-        field("stemVocalActiveRatio", "stem",
-              "出曲的交接窗口里人声要有平常的几倍密，才值得动用人声分离。"
-                  + "调小 = 更容易升级到 stem 手法，但也更容易选到其实没什么人声的段落。"
-                  + "参考：语料里每首歌自己的 8 秒窗口，中位数 1.00，第 95 百分位 1.16–1.58。",
-              0.8, 2, 0.01, 2, \.stemVocalActiveRatio),
-        field("stemAcapellaIncomingVocalMax", "stem",
-              "要让出曲的清唱飘在入曲上，入曲开头的人声必须低于自己平常的这个倍数（即“基本是伴奏”）。"
-                  + "调大 = 更多曲子够得着 acapella，但入曲一开口就会变成两个主唱抢戏。",
-              0.2, 1.5, 0.01, 2, \.stemAcapellaIncomingVocalMax),
-        field("stemMinOverlap", "stem",
-              "叠加短于这个秒数就不用 stem 手法：手法本身展不开，也不值得为它跑一次人声分离。",
-              2, 20, 0.5, 1, \.stemMinOverlap),
-        field("stemDuckDepthDB", "stem",
-              "两边都在唱时，出曲的人声被压低多少 dB（S1 盲听选的是 9）。"
-                  + "调大 = 出曲人声让得更彻底，但也更容易听出“被人按住了”。",
-              0, 24, 0.5, 1, \.stemDuckDepthDB),
-        field("stemExchangeHandoverMin", "stem",
-              "vocal exchange 的“交接句”最早可以落在叠加的百分之多少处。"
-                  + "太早入曲的伴奏还没铺开，换人声就像切了一刀。",
-              0.05, 0.7, 0.01, 2, \.stemExchangeHandoverMin),
-        field("stemExchangeHandoverMax", "stem",
-              "vocal exchange 的“交接句”最晚可以落在叠加的百分之多少处。"
-                  + "太晚入曲的人声还没站稳，出曲这边已经没声音了。",
-              0.4, 0.98, 0.01, 2, \.stemExchangeHandoverMax),
-        boolField("twoClockExchange", "stem",
-                  "开 = 人声和伴奏走两个时钟：伴奏在低频交接点 S 换台，人声按歌词另选一个"
-                      + "交接点 L —— L 落在 S 之后就是“唱完才走”（vocalCarryover，出曲人声"
-                      + "骑在入曲伴奏上把这句唱完），落在 S 之前就是“人声先行”"
-                      + "（vocalYield，交接点砸在一个没人唱的小节上）。"
-                      + "关 = 回到只有一个交接点、离叠加正中最近的老编排，逐字段一致。",
-                  \.twoClockExchange),
-        boolField("scoreEnabled", "stem",
+        boolField("scoreEnabled", "score",
                   "开 = 允许规划器给够格的一对开一张“转场乐谱”（格点上的离散手势：正拍直切 + "
                       + "末句甩延时），由预渲染 segment 演出；segment 没备好就还是今天的 blend，"
                       + "live 路径永远不近似乐谱。关（默认）= 一张谱都不出，逐字段回到今天。",
                   \.scoreEnabled),
-        field("scoreMinBPMConfidence", "stem",
+        field("scoreMinBPMConfidence", "score",
               "两首歌的拍子都要数到这个把握以上，才谈得上在格点上“切”。"
                   + "比对拍那条线高得多：blend 扛得住半拍的网格误差，切扛不住。",
               0, 1, 0.01, 2, \.scoreMinBPMConfidence),
-        boolField("scoreAimEnabled", "stem",
+        boolField("scoreAimEnabled", "score",
                   "开（默认）= 先定入曲的目标格点——drop 起点 > 副歌起点 > 首个核心段起点——"
                       + "再把入曲的进点从那里倒推出来，让那一刀正好落在这个点上；"
                       + "入曲没有结构信息时自动退化成今天的进点。"
                       + "关 = P1 的落法：seam 从低频交接点吸附到最近的乐句线，"
                       + "切得干净但落在哪儿全看几何。只在出谱时起作用。",
                   \.scoreAimEnabled),
-        field("scoreAimMaxLeadSeconds", "stem",
+        field("scoreAimMaxLeadSeconds", "score",
               "瞄准点最多可以落在入曲 introEnd 之后多少秒。瞄准会跳过目标之前的一切，"
                   + "所以这是“为了落在那个 drop 上，愿意丢掉入曲多少”的上限。",
               0, 240, 5, 0, \.scoreAimMaxLeadSeconds),
-        boolField("scoreTensionCutEnabled", "stem",
+        boolField("scoreTensionCutEnabled", "score",
                   "开（默认，只在出谱时有意义）= 允许“张力切”：落拍前 N 拍全场静默，然后直切 + slam。"
                       + "只在这一刀确实落在 drop / 副歌上时才给——切进主歌前的静默不是张力，是故障。"
                       + "关 = 这一档从模板梯子上摘掉，退回 echo throw / 直切。",
                   \.scoreTensionCutEnabled),
-        field("scoreTensionCutBeats", "stem",
+        field("scoreTensionCutBeats", "score",
               "张力切静默几拍。1 拍是一口屏住的气；2 拍听众已经来得及觉得不对；"
                   + "一小节以上模型直接拒收。",
               0.25, 4, 0.25, 2, \.scoreTensionCutBeats),
-        boolField("scoreBedIntroEnabled", "stem",
-                  "开（默认，只在意图层判为 dropAlign 时有意义）= 允许“伴奏垫”："
-                      + "入曲先只出伴奏（人声 lane 压到 −60 dB）垫在出曲的退场底下，"
-                      + "人声到 drop 那一拍才进来。底下的 blend 一个字段都不改。"
-                      + "这是手势库里唯一要跑人声分离的一个，所以它要付单边分离的跑道。",
-                  \.scoreBedIntroEnabled),
-        intField("scoreBedIntroBars", "stem",
-                 "伴奏垫最长铺几小节——这其实是对【叠加长度】的上限，不是把垫子补到这个长度："
-                     + "瞄准之后入曲的进点本来就是从落点倒推出来的，"
-                     + "垫子就是“进点到人声进入点”这一整段。"
-                     + "叠加比这个长出半小节以上，整谱作废（从头压住人声就不是这个手势了）。"
-                     + "默认 8 = 规划器自己最常给的叠加长度；预研写的 4 在真实计划上一次都够不着。",
-                 1, 16, \.scoreBedIntroBars),
-        field("scoreBedIntroMinIncomingVocal", "stem",
-              "入曲进点窗口里的人声密度要到自己平常的这个倍数，才值得给它做伴奏垫。"
-                  + "低于这条线的入曲开头本来就没人唱——垫子就等于原混音，"
-                  + "手势听不出来，分离却照付。",
-              0.3, 1.5, 0.05, 2, \.scoreBedIntroMinIncomingVocal),
-        field("vocalCarryWindowSeconds", "stem",
-              "出曲人声最多可以越过低频交接点 S 多少秒去把一句唱完；这个窗口里找得到歌词行末"
-                  + "就是 vocalCarryover，找不到就退成 vocalYield（在 S 之前唱完）。"
-                  + "调大 = 更容易“唱完才走”，但唱得越久出曲推子已经落得越低，"
-                  + "补偿到顶（+6 dB）之后人声还是会跟着推子一起走。",
-              0, 20, 0.5, 1, \.vocalCarryWindowSeconds),
-
         // --- Intent layer (P3). 默认整层关闭；关着的时候一个信号都不算，逐字段回到今天。
         boolField("intentEnabled", "intent",
                   "开 = 先问“这一对在文化上该怎么接”，再决定允许哪一类手法："
@@ -465,4 +407,3 @@ extension TransitionPlanner.Config {
         }
     }
 }
-#endif

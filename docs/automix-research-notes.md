@@ -1,7 +1,7 @@
 # AutoMix 外部项目调研 — walkywalker/automix 与 sony/fxnorm-automix
 
 > 状态：调研（2026-08-28） · 纯阅读，未写任何产品代码
-> 前置阅读：[`automix-spec.md`](automix-spec.md) · `audition.md`（已移除，见分支历史） · [`automix-stems-predev.md`](automix-stems-predev.md)
+> 前置阅读：[`automix-spec.md`](automix-spec.md) · `audition.md`（已移除，见分支历史）
 > 注:文中提到的离线工具(`audition`、`vocaleval`、`stemtool`,及 `docs/audition.md`)已从仓库移除,保留在分支历史中(`git log -- Sources/audition docs/audition.md`)。
 > 对照基准：`Sources/Kumone/Core/Player/Analysis/TransitionPlanner.swift` · `TrackAnalyzer.swift`
 > 所有结论标注来源（文件:行）；无来源的判断标注为**推测**。

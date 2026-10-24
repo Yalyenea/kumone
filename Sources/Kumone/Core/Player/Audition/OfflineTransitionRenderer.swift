@@ -1,4 +1,3 @@
-#if os(macOS)
 import Accelerate
 import AVFoundation
 import Foundation
@@ -30,24 +29,11 @@ enum OfflineTransitionRenderer {
         var postRoll: TimeInterval = 12
         /// Automation granularity; 50 Hz is the live engine's ramp tick.
         var tickRate: Double = 50
-        /// How the renderer gets a vocal stem when the style asks for one.
-        /// Nil — the default — means stem techniques degrade to a whole-mix
-        /// render, with the reason reported in `Result.stemFallbackReason`.
-        var vocalStemProvider: VocalStemProvider? = nil
-        /// The four-lane separator, when this machine has one. Only a
-        /// `.custom` envelope carrying an `incomingBedSplit` ever consults it,
-        /// and nil simply means that envelope's bed plays undivided.
-        var fullStemProvider: FullStemProvider? = nil
-
         /// The compiled audio side of a `TransitionScore`: two whole-mix gain
         /// lanes and, when the score throws one, a delay directive
         /// (`ScoreCompiler`). Nil — the default, and every render that has
         /// never heard of a score — leaves this whole path unread.
         ///
-        /// **Nothing here separates anything.** A score-only segment costs one
-        /// render pass (~1 s) and never touches `vocalStemProvider`, which is
-        /// the entire point: a full-band gesture does not need stems, and
-        /// paying 30 s of separation for one silent beat would be absurd.
         var mixLanes: WholeMixLanes? = nil
 
         /// Per-deck loudness compensation, in dB, exactly as the live player
@@ -97,7 +83,7 @@ enum OfflineTransitionRenderer {
         /// pre-render path sets it false, because there the release is *handed
         /// back to the deck* at the splice (`Mix.rideDBAtEnd`) and continues on
         /// the engine's own glide timer; rendering another 13 s of the incoming
-        /// track just to finish it would be 13 s of separation budget spent on
+        /// track just to finish it would be 13 s of rendering spent on
         /// audio the deck can play itself.
         var stretchPostRollForRideRelease = true
 
@@ -130,7 +116,7 @@ enum OfflineTransitionRenderer {
         /// decks have been summed, and cancels out of any A/B comparison of two
         /// renders of the same pair. Loudness bias is the strongest confound in
         /// listening tests — the louder of two takes just sounds better — and
-        /// several of our techniques (`vocalDuck` above all) change level by
+        /// different transition techniques change level by
         /// construction, so every result gathered without it is suspect
         /// (docs/automix-research-notes.md §2.4). Sony's listening test used
         /// −23 dBFS; −16 LUFS is the same idea on the same scale the rest of
@@ -164,29 +150,6 @@ enum OfflineTransitionRenderer {
         var measuredLUFS: Double? = nil
         var normalizationGainDB: Double = 0
         var normalizationTargetLUFS: Double? = nil
-        /// The stem technique that actually shaped this render, if any.
-        var stemTechnique: String? = nil
-        /// Wall-clock seconds the stem provider took (separation, or a cache
-        /// read), and how much outgoing audio it was asked for.
-        var stemSeconds: Double? = nil
-        var stemSeparatedSeconds: TimeInterval? = nil
-        /// Source seconds of the *incoming* track that were separated. Only a
-        /// `.custom` envelope with a live incoming lane pays for this second
-        /// pass; nil means the render split one deck, as every technique
-        /// before envelopes did.
-        var stemIncomingSeparatedSeconds: TimeInterval? = nil
-        /// Which decks were split ("出曲" / "入曲").
-        var stemSeparatedSides: [String] = []
-        /// Vocal energy in the separated window, relative to the mixture.
-        /// Near zero means an instrumental outro — the technique ran and had
-        /// nothing to work on.
-        var stemVocalEnergyRatio: Double? = nil
-        /// The provider served the window from its own cache.
-        var stemCacheHit = false
-        /// Why a requested stem technique was *not* applied. Non-nil means the
-        /// render is a plain whole-mix one and says so out loud, rather than
-        /// silently sounding like something the caller did not ask for.
-        var stemFallbackReason: String? = nil
         /// The render performed a score's whole-mix lanes.
         var scoreLanesApplied = false
         /// Why it did not, when it was asked to. Non-nil means the file holds
@@ -247,8 +210,6 @@ enum OfflineTransitionRenderer {
         var rideDB: Double
         var rideDBAtEnd: Double
         var rideReleaseSeconds: TimeInterval
-        var stemApplied: StemTechniqueLayer.Applied?
-        var stemFallbackReason: String?
         /// The whole-mix lanes this render performed, when it was handed any.
         /// Nil means the score did not play — the mix is the plain blend, and
         /// `scoreFallbackReason` says why.
@@ -348,20 +309,12 @@ enum OfflineTransitionRenderer {
                       measuredLUFS: normalization.measuredLUFS,
                       normalizationGainDB: normalization.gainDB,
                       normalizationTargetLUFS: options.normalizeToLUFS,
-                      stemTechnique: mix.stemApplied?.technique.label,
-                      stemSeconds: mix.stemApplied?.seconds,
-                      stemSeparatedSeconds: mix.stemApplied?.separatedSeconds,
-                      stemIncomingSeparatedSeconds: mix.stemApplied?.incomingSeparatedSeconds,
-                      stemSeparatedSides: mix.stemApplied?.separatedSides ?? [],
-                      stemVocalEnergyRatio: mix.stemApplied?.vocalEnergyRatio,
-                      stemCacheHit: mix.stemApplied?.cacheHit ?? false,
-                      stemFallbackReason: mix.stemFallbackReason,
                       scoreLanesApplied: mix.lanesApplied != nil,
                       scoreFallbackReason: mix.scoreFallbackReason)
     }
 
     /// Render a transition into memory. This is the whole computation — the
-    /// deck graph, the stem layer, the automation, the settling and the ride —
+    /// deck graph, whole-mix lanes, the automation, the settling and the ride —
     /// with nothing done to the result: `render` normalizes and writes it, the
     /// live pre-render path splices it into playback.
     static func renderMix(_ planned: PlannedTransition,
@@ -493,8 +446,6 @@ enum OfflineTransitionRenderer {
 
         var overlapStart = options.preRoll
         var written: AVAudioFrameCount = 0
-        var stemApplied: StemTechniqueLayer.Applied?
-        var stemFallback: String?
         var lanesApplied: WholeMixLaneLayer.Applied?
         var scoreFallback: String?
         var endRideDB: Double = 0
@@ -523,9 +474,6 @@ enum OfflineTransitionRenderer {
         }
 
         if case .gapless = planned.plan {
-            if planned.style.stemTechnique != nil {
-                stemFallback = StemTechniqueLayer.StemError.noOverlap.errorDescription
-            }
             if options.mixLanes != nil {
                 scoreFallback = WholeMixLaneLayer.LaneError.noOverlap.errorDescription
             }
@@ -599,61 +547,8 @@ enum OfflineTransitionRenderer {
                 seconds: (overlap + settleDuration + postRoll) * rateHeadroom + 1,
                 format: format)
 
-            // --- Stem layer: rewrite the outgoing deck's overlap window
-            // before a single sample is pulled through the graph, so the
-            // automation below plays over stems without knowing it.
-            if let technique = planned.style.stemTechnique {
-                var outgoingRate = 1.0
-                var incomingRate = 1.0
-                if case .beatMatched(let p) = planned.plan {
-                    outgoingRate = Double(p.outgoingRate)
-                    incomingRate = Double(p.incomingRate)
-                }
-                do {
-                    guard let provider = options.vocalStemProvider else {
-                        throw StemTechniqueLayer.StemError.noProvider
-                    }
-                    if case .custom(let envelope) = technique {
-                        // The incoming buffer is loaded *at* its in point and
-                        // starts playing when the overlap does, so its overlap
-                        // begins at frame zero — unlike the outgoing one, which
-                        // carries the render's pre-roll first.
-                        stemApplied = try StemTechniqueLayer.apply(
-                            envelope: envelope,
-                            outgoing: StemTechniqueLayer.Side(
-                                buffer: outBuffer, source: outgoingURL,
-                                windowStart: outStart,
-                                overlapStartFrame: Int((preRoll * sampleRate).rounded()),
-                                rate: outgoingRate),
-                            incoming: StemTechniqueLayer.Side(
-                                buffer: inBuffer, source: incomingURL,
-                                windowStart: inPoint, overlapStartFrame: 0,
-                                rate: incomingRate,
-                                // The incoming deck may walk back to unity
-                                // partway through the overlap, in which case
-                                // `incomingRate` alone no longer says where it
-                                // is in its own song; see `Side.glide`.
-                                glide: TransitionAutomation.incomingGlide(
-                                    for: planned.plan, geometry: geometry)),
-                            geometry: geometry, provider: provider,
-                            fullProvider: options.fullStemProvider)
-                    } else {
-                        stemApplied = try StemTechniqueLayer.apply(
-                            technique, to: outBuffer,
-                            source: outgoingURL, windowStart: outStart,
-                            overlapStartFrame: Int((preRoll * sampleRate).rounded()),
-                            plan: planned.plan, style: planned.style, geometry: geometry,
-                            outgoingRate: outgoingRate, provider: provider)
-                    }
-                } catch {
-                    stemFallback = (error as? LocalizedError)?.errorDescription
-                        ?? error.localizedDescription
-                }
-            }
-
             // --- Score layer: two whole-mix gain lanes, applied to the same
-            // source buffers and in the same place, but per sample and without
-            // separating anything. A cut edge has to land on the frame the
+            // source buffers per sample. A cut edge has to land on the frame the
             // compiler named; 50 Hz control points would put it within 20 ms of
             // it, which is the flam the score model exists to avoid.
             if let lanes = options.mixLanes, !lanes.isPassThrough {
@@ -666,13 +561,12 @@ enum OfflineTransitionRenderer {
                 do {
                     lanesApplied = try WholeMixLaneLayer.apply(
                         lanes,
-                        outgoing: StemTechniqueLayer.Side(
-                            buffer: outBuffer, source: outgoingURL, windowStart: outStart,
+                        outgoing: TransitionAudioSide(
+                            buffer: outBuffer,
                             overlapStartFrame: Int((preRoll * sampleRate).rounded()),
                             rate: outgoingRate),
-                        incoming: StemTechniqueLayer.Side(
-                            buffer: inBuffer, source: incomingURL,
-                            windowStart: inPoint, overlapStartFrame: 0,
+                        incoming: TransitionAudioSide(
+                            buffer: inBuffer, overlapStartFrame: 0,
                             rate: incomingRate,
                             glide: TransitionAutomation.incomingGlide(
                                 for: planned.plan, geometry: geometry)),
@@ -836,10 +730,7 @@ enum OfflineTransitionRenderer {
             while elapsed < overlap {
                 var frame = TransitionAutomation.frame(
                     plan: planned.plan, style: planned.style,
-                    elapsed: elapsed, geometry: geometry,
-                    // The stem layer has already rewritten the source buffers,
-                    // so the live stand-in for it must not run as well.
-                    approximateStems: stemApplied == nil)
+                    elapsed: elapsed, geometry: geometry)
                 if scoreOwnsGain {
                     let rates = (outgoing: frame.outgoing.rate, incoming: frame.incoming.rate)
                     frame.outgoing = TransitionAutomation.DeckParameters()
@@ -869,7 +760,7 @@ enum OfflineTransitionRenderer {
             // Nothing else in this render joins mid-flight, which is worth
             // saying out loud now that the cost of doing so is known:
             //
-            // - the stem layer and the score's lanes rewrite the two source
+            // - the score's lanes rewrite the two source
             //   buffers *before* either deck is scheduled, so they change what
             //   is in the audio and never when it arrives;
             // - a score's echo throw is three parameter writes on a delay unit
@@ -987,7 +878,6 @@ enum OfflineTransitionRenderer {
                    outgoing: outgoingTimeline, incoming: incomingTimeline,
                    rideDB: rideDB, rideDBAtEnd: endRideDB,
                    rideReleaseSeconds: rideRelease,
-                   stemApplied: stemApplied, stemFallbackReason: stemFallback,
                    lanesApplied: lanesApplied, scoreFallbackReason: scoreFallback)
     }
 
@@ -1220,4 +1110,3 @@ enum OfflineTransitionRenderer {
         ]
     }
 }
-#endif

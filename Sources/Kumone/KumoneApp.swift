@@ -1,7 +1,6 @@
 import Combine
 import SwiftUI
 
-#if os(macOS)
 public struct KumoneApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
@@ -32,10 +31,6 @@ public struct KumoneApp: App {
                      height: Theme.Layout.defaultWindowHeight)
         .windowResizability(.contentMinSize)
         .commands {
-            CommandGroup(after: .appInfo) {
-                CheckForUpdatesButton()
-            }
-
             CommandMenu("播放") {
                 Button(player.isPlaying ? String(localized: "暂停") : String(localized: "播放")) {
                     player.togglePlayPause()
@@ -222,4 +217,3 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return false
     }
 }
-#endif

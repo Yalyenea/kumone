@@ -17,9 +17,6 @@ enum DownloadFileProtection {
         var values = URLResourceValues()
         values.isExcludedFromBackup = true
         try url.setResourceValues(values)
-        #if os(iOS)
-        try FileManager.default.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication], ofItemAtPath: url.path)
-        #endif
     }
 }
 
@@ -28,7 +25,6 @@ enum DownloadTransportEvent {
     case waiting(token: String)
     case finished(CompletedDownload)
     case failed(token: String, domain: String, code: Int, resumeData: Data?)
-    case backgroundEventsFinished
 }
 
 @MainActor
@@ -106,9 +102,6 @@ final class DownloadSessionDelegate: NSObject, URLSessionDownloadDelegate, @unch
                                    resumeData: error.userInfo[NSURLSessionDownloadTaskResumeData] as? Data))
     }
 
-    func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {
-        continuation.yield(.backgroundEventsFinished)
-    }
 
     static func validToken(_ value: String) -> Bool {
         let parts = value.split(separator: ".")

@@ -1,4 +1,3 @@
-#if os(macOS)
 import Foundation
 
 // 转场即乐谱 — the data model. See docs/automix-score-predev.md §2.1.
@@ -11,7 +10,7 @@ import Foundation
 // A score is that name: a handful of typed events addressed in bars and beats
 // around the seam, compiled against the final geometry (`ScoreCompiler`) into
 // whole-mix gain lanes the offline renderer applies sample-accurately. It is a
-// *marker*, exactly like `.vocalExchange` — the planner says what it wants, the
+// marker: the planner says what it wants, the
 // compiler works out where that lands in seconds, and a compile that cannot
 // land throws the whole score away rather than approximating it.
 
@@ -136,16 +135,7 @@ public struct TransitionAim: Codable, Equatable, Sendable {
 
 /// One club gesture, as an event rather than a curve.
 ///
-/// **Two shapes of event live in here, and the difference is load-bearing.**
-/// `cutOut`, `slamIn` and `echoThrow` are *instants*: the grid point is where
-/// they happen. `silence(beats:)` and `bedIntro(bars:)` are **spans that end at
-/// their grid point** — a tension cut is the beat *before* the landing and a
-/// bed is the bars *before* the vocals join. Addressing a span by its end is
-/// what lets both of them be written at `bar 0` and mean "right before the
-/// thing the listener came for", which is the only place either gesture is
-/// musical; addressing them by their start would put them at a negative bar,
-/// where the model resolves positions on the **outgoing** track's grid, and
-/// both of these are the incoming track's business.
+/// Instant events happen at their grid point; silence ends at its grid point.
 public enum ScoreEvent: Codable, Equatable, Sendable {
     /// The outgoing track stops dead on this grid point (a ≤10 ms edge).
     /// The "cut" half of cut-on-the-one.
@@ -168,16 +158,6 @@ public enum ScoreEvent: Codable, Equatable, Sendable {
     /// signal is cut. `echoOut`'s gesture with a cut instead of a fade at the
     /// end of it.
     case echoThrow
-    /// The incoming track enters as an accompaniment bed (its vocal lane held
-    /// down) for this many bars, its singer joining **on** this grid point.
-    /// Honestly not a drums break — see the predev's table.
-    ///
-    /// The one gesture in the library that needs a separator: the bed is the
-    /// incoming track minus its vocal, and there is no way to have that without
-    /// splitting the incoming deck. So a score carrying one pays a runway the
-    /// other four do not (`TransitionScore.RunwayClass`).
-    case bedIntro(bars: Int)
-
     /// Short name for reports, filenames and the debug panel.
     public var label: String {
         switch self {
@@ -185,7 +165,6 @@ public enum ScoreEvent: Codable, Equatable, Sendable {
         case .slamIn: return "slamIn"
         case .silence(let beats): return String(format: "silence(%.2f)", beats)
         case .echoThrow: return "echoThrow"
-        case .bedIntro(let bars): return "bedIntro(\(bars))"
         }
     }
 
@@ -195,21 +174,15 @@ public enum ScoreEvent: Codable, Equatable, Sendable {
     public var endsOutgoing: Bool {
         switch self {
         case .cutOut, .echoThrow: return true
-        case .slamIn, .silence, .bedIntro: return false
+        case .slamIn, .silence: return false
         }
     }
 
     /// Realizable by today's compiler.
     ///
-    /// P1 shipped this false for `silence` and `bedIntro`, and the compiler
-    /// threw whole scores away on it. P4 built both, so every case in the
-    /// vocabulary is now performable and this is uniformly true. The property
-    /// and the compiler's guard stay: the model exists to be able to *name* a
-    /// gesture before it can play one (spinback is the next one waiting), and
-    /// the refusal path is the thing that keeps naming safe.
     public var isSupportedInV1: Bool {
         switch self {
-        case .cutOut, .slamIn, .echoThrow, .silence, .bedIntro: return true
+        case .cutOut, .slamIn, .echoThrow, .silence: return true
         }
     }
 
@@ -219,22 +192,14 @@ public enum ScoreEvent: Codable, Equatable, Sendable {
     /// A slam is the *in* half of a cut: an incoming track arriving full-band
     /// while the outgoing one is still blending is not a slam, it is a jump in
     /// level. A tension cut is the beat of nothing before that arrival, so it
-    /// needs the same partner. A bed, by contrast, decorates a blend — it is
-    /// the one gesture in the library with nothing to say about how the
-    /// outgoing track leaves.
+    /// needs the same partner.
     public var needsSeamOwner: Bool {
         switch self {
         case .slamIn, .silence: return true
-        case .cutOut, .echoThrow, .bedIntro: return false
+        case .cutOut, .echoThrow: return false
         }
     }
 
-    /// The gesture needs the **incoming** deck split into vocal and
-    /// accompaniment. True for exactly one case, and that case pays for it.
-    public var needsIncomingStems: Bool {
-        if case .bedIntro = self { return true }
-        return false
-    }
 }
 
 public struct ScoredEvent: Codable, Equatable, Sendable {
@@ -258,28 +223,7 @@ public struct TransitionScore: Codable, Equatable, Sendable {
     /// may reach into.
     public static let maxPreBars = 4
     public static let maxPostBars = 8
-    /// Longest accompaniment bed a score may ask for — the same sixteen bars
-    /// that is the planner's own longest overlap, because on an aimed
-    /// hand-over the bed and the overlap are the same window.
-    public static let maxBedIntroBars = 16
-
-    /// The shipped sizes of the two spans, named here rather than only in
-    /// `TransitionPlanner.Config` so the CLI — which lives outside the module
-    /// and cannot see a planner config — asks for the same gesture the planner
-    /// would have offered. One number, one place, two readers.
     public static let defaultTensionCutBeats: Double = 1
-    /// **Eight bars, and the predev said four.** The deviation is P2's fault in
-    /// the good way. The predev imagined a bed sliding in *under* an entry that
-    /// happened somewhere else, so "four bars early" was a statement about how
-    /// much earlier than usual the incoming deck started. Since aiming, the
-    /// incoming deck's entry is already composed backwards from the landing —
-    /// the overlap *is* the window between the entry and the drop — so the bed
-    /// and the overlap are the same thing, and the number has to be sized like
-    /// an overlap. The planner's own overlaps are eight or sixteen bars; a
-    /// four-bar cap would refuse every plan it was ever offered, which is a
-    /// gesture that ships dead rather than a gesture that ships careful.
-    public static let defaultBedIntroBars = 8
-
     /// Bars of the outgoing track before the seam this score reaches into.
     public var preBars: Int
     /// Bars of the incoming track after it.
@@ -346,52 +290,11 @@ public struct TransitionScore: Codable, Equatable, Sendable {
         ])
     }
 
-    /// Accompaniment bed: `bars` bars of the incoming track with its vocal lane
-    /// held down, under the outgoing track's exit, the singer joining on the
-    /// landing point.
-    ///
-    /// **A decorating score**, and the first one: it has no event that ends the
-    /// outgoing side, so it does not own the gain law. The blend underneath it
-    /// is the blend the planner already made — the same fader curves, the same
-    /// staged EQ, the same aimed overlap end — with one lane of the incoming
-    /// deck muted until the drop. Which is exactly what the gesture is: not a
-    /// different hand-over, an entrance built for one.
-    public static func bedIntro(bars: Int) -> TransitionScore {
-        TransitionScore(preBars: 0, postBars: 1, events: [
-            ScoredEvent(at: .seam, .bedIntro(bars: bars)),
-        ])
-    }
-
-    // MARK: - What performing this costs
-
-    /// **What kind of runway a score asks the pre-render for.**
-    ///
-    /// The whole cost story of the score model in one enum. Four of the five
-    /// gestures are full-band — they are gain lanes on the two mixes and they
-    /// separate nothing — so their segment is one render pass and the runway
-    /// collapses to the margin. The fifth needs the incoming track's singer
-    /// isolated, which is a separation pass on one side, and it pays the
-    /// arithmetic `stemPrerenderRunway` already does for stem techniques with
-    /// the side count halved.
-    public enum RunwayClass: String, Sendable, Equatable {
-        /// Whole-mix lanes only: ~1 s of rendering, no separator consulted.
-        case scoreOnly
-        /// One separation pass, on the incoming deck (`bedIntro`).
-        case incomingStems
-    }
-
-    /// True when any gesture in this score needs the incoming deck split.
-    public var needsIncomingStems: Bool { events.contains { $0.event.needsIncomingStems } }
-
-    public var runwayClass: RunwayClass { needsIncomingStems ? .incomingStems : .scoreOnly }
-
     /// Whether this score is the one deciding how the outgoing track leaves.
-    /// False for a decorating score (`bedIntro`), which sits on top of the
-    /// blend rather than replacing it.
     public var ownsSeam: Bool { events.contains { $0.event.endsOutgoing } }
 
     /// How the panel and the console name this score: "cutOnOne",
-    /// "cutOnOne+echoThrow", "tensionCut(1)+cutOnOne", "bedIntro(4)".
+    /// "cutOnOne+echoThrow", "tensionCut(1)+cutOnOne".
     ///
     /// Named after the **gestures**, not the events, because that is the
     /// vocabulary the listening notes are written in: nobody hears "a cutOut
@@ -409,9 +312,6 @@ public struct TransitionScore: Codable, Equatable, Sendable {
         if let owner {
             parts.append((slams ? "cutOnOne" : "cutOnly")
                          + (owner == .echoThrow ? "+echoThrow" : ""))
-        }
-        for scored in events {
-            if case .bedIntro = scored.event { parts.append(scored.event.label) }
         }
         return parts.isEmpty
             ? events.map(\.event.label).joined(separator: "+")
@@ -432,7 +332,6 @@ public struct TransitionScore: Codable, Equatable, Sendable {
         case gestureNeedsASeamOwner(event: String)
         case severalSeamOwners([String])
         case silenceOutOfRange(beats: Double)
-        case bedIntroOutOfRange(bars: Int)
         case seamOwnerOffTheOne(event: String, bar: Int, beat: Double)
         case notMonotonic(previous: String, event: String)
         case duplicate(event: String)
@@ -460,8 +359,6 @@ public struct TransitionScore: Codable, Equatable, Sendable {
                 return String(format: "静默 %.2f 拍不在 0–%d 拍（一小节）之间——"
                               + "更长的空白不是张力，是断电。", beats,
                               TransitionScore.beatsPerBar)
-            case .bedIntroOutOfRange(let bars):
-                return "伴奏垫 \(bars) 小节不在 1–\(TransitionScore.maxBedIntroBars) 小节之间。"
             case .seamOwnerOffTheOne(let event, let bar, let beat):
                 return String(format: "%@ 必须落在 seam（bar 0 beat 0）上，现在在 bar %d beat %.2f。",
                               event, bar, beat)
@@ -506,27 +403,11 @@ public struct TransitionScore: Codable, Equatable, Sendable {
                 guard beats.isFinite, beats > 0,
                       beats <= Double(Self.beatsPerBar)
                 else { throw ValidationFailure.silenceOutOfRange(beats: beats) }
-            case .bedIntro(let bars):
-                guard bars >= 1, bars <= Self.maxBedIntroBars
-                else { throw ValidationFailure.bedIntroOutOfRange(bars: bars) }
             case .cutOut, .slamIn, .echoThrow: break
             }
             previous = scored
         }
 
-        // **A score either ends the outgoing track or decorates a blend.**
-        //
-        // P1 required a seam owner unconditionally, because every score it
-        // could write was a cut. P4's `bedIntro` is the first gesture that has
-        // no opinion about how the outgoing track leaves — it mutes one lane of
-        // the incoming deck and lets the planner's blend run underneath — so
-        // "no owner" became a legal shape rather than a malformed score.
-        //
-        // What did *not* become legal is a score with no owner and a gesture
-        // that needs one. A slam with nothing cut is a level jump; a beat of
-        // silence in the middle of a crossfade that then resumes is a dropout.
-        // Both are the sound of a broken player, and neither is expressible
-        // here.
         let owners = events.filter { $0.event.endsOutgoing }
         guard owners.count <= 1 else {
             throw ValidationFailure.severalSeamOwners(owners.map(\.event.label))
@@ -541,4 +422,3 @@ public struct TransitionScore: Codable, Equatable, Sendable {
         }
     }
 }
-#endif

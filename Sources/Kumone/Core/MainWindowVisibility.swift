@@ -8,8 +8,7 @@ import Foundation
 /// `TimelineView`s ticking while the window is miniaturised, hidden by the
 /// close interceptor or fully occluded, burning CPU on frames nobody can see.
 /// `MainWindowConfigurator`'s coordinator feeds this from the live `NSWindow`
-/// and the page's timelines pause while it reads `false`; on iOS, where there
-/// is no window coordinator, it simply stays `true`.
+/// and the page's timelines pause while it reads `false`.
 final class MainWindowVisibility: ObservableObject {
     static let shared = MainWindowVisibility()
 

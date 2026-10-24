@@ -23,7 +23,6 @@ struct KaraokeLyricLine: PlatformViewRepresentable {
     /// frozen exactly where it was.
     let playing: Bool
 
-    #if os(macOS)
     func makeNSView(context: Context) -> KaraokeLineView {
         let view = KaraokeLineView()
         view.update(line: line, words: words, size: size, weight: weight,
@@ -43,27 +42,6 @@ struct KaraokeLyricLine: PlatformViewRepresentable {
                                    alignment: alignment, rounded: rounded,
                                    width: proposal.width)
     }
-    #else
-    func makeUIView(context: Context) -> KaraokeLineView {
-        let view = KaraokeLineView()
-        view.update(line: line, words: words, size: size, weight: weight,
-                    color: color, alignment: alignment, rounded: rounded,
-                    playing: playing)
-        return view
-    }
-
-    func updateUIView(_ view: KaraokeLineView, context: Context) {
-        view.update(line: line, words: words, size: size, weight: weight,
-                    color: color, alignment: alignment, rounded: rounded,
-                    playing: playing)
-    }
-
-    func sizeThatFits(_ proposal: ProposedViewSize, uiView: KaraokeLineView, context: Context) -> CGSize? {
-        KaraokeLineView.fittedSize(line: line, size: size, weight: weight,
-                                   alignment: alignment, rounded: rounded,
-                                   width: proposal.width)
-    }
-    #endif
 }
 
 /// What the line draws, shared by both platforms' hosts: rebuilds the
@@ -131,7 +109,6 @@ private struct KaraokeLineContent {
     }
 }
 
-#if os(macOS)
 /// The host for a karaoke line: draws the line, and runs a display link that
 /// redraws it at up to 30 fps while the wipe is advancing.
 final class KaraokeLineView: NSView {
@@ -213,90 +190,3 @@ final class KaraokeLineView: NSView {
         needsDisplay = true
     }
 }
-#else
-/// The host for a karaoke line: draws the line, and runs a display link that
-/// redraws it at up to 30 fps while the wipe is advancing.
-final class KaraokeLineView: UIView {
-    private var content = KaraokeLineContent()
-    private var playing = false
-    private var displayLink: CADisplayLink?
-    private var lastDraw: CFTimeInterval = 0
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        backgroundColor = .clear
-        contentMode = .redraw
-    }
-
-    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
-
-    func update(line: LyricLine, words: [LyricWord], size: CGFloat,
-                weight: Font.Weight, color: Color, alignment: NSTextAlignment,
-                rounded: Bool, playing: Bool) {
-        content.update(line: line, words: words, size: size, weight: weight,
-                       color: PlatformColor(color), alignment: alignment,
-                       rounded: rounded)
-        if playing != self.playing {
-            self.playing = playing
-            if playing {
-                startDisplayLink()
-            } else {
-                stopDisplayLink()
-            }
-        }
-        setNeedsDisplay()
-    }
-
-    static func fittedSize(line: LyricLine, size: CGFloat, weight: Font.Weight,
-                           alignment: NSTextAlignment, rounded: Bool,
-                           width: CGFloat?) -> CGSize? {
-        var content = KaraokeLineContent()
-        content.update(line: line, words: [], size: size, weight: weight,
-                       color: .white, alignment: alignment, rounded: rounded)
-        return content.fittedSize(width: width)
-    }
-
-    override func didMoveToWindow() {
-        super.didMoveToWindow()
-        if window == nil {
-            stopDisplayLink()
-        } else if playing {
-            startDisplayLink()
-        }
-    }
-
-    override func draw(_ rect: CGRect) {
-        guard let context = UIGraphicsGetCurrentContext(),
-              let attributed = content.attributed(at: PlayerService.shared.livePlaybackTime)
-        else { return }
-        context.saveGState()
-        context.textMatrix = .identity
-        // Core Text draws bottom-up; UIKit hands over a top-down context.
-        context.translateBy(x: 0, y: bounds.height)
-        context.scaleBy(x: 1, y: -1)
-        RubyAttributedString.draw(attributed, in: bounds, context: context)
-        context.restoreGState()
-    }
-
-    private func startDisplayLink() {
-        guard displayLink == nil else { return }
-        lastDraw = 0
-        let link = CADisplayLink(target: self, selector: #selector(step(_:)))
-        link.add(to: .main, forMode: .common)
-        displayLink = link
-    }
-
-    private func stopDisplayLink() {
-        displayLink?.invalidate()
-        displayLink = nil
-    }
-
-    @objc private func step(_ link: CADisplayLink) {
-        let now = CACurrentMediaTime()
-        guard now - lastDraw >= 1.0 / 30 else { return }
-        guard content.wipeHasMoved(at: PlayerService.shared.livePlaybackTime) else { return }
-        lastDraw = now
-        setNeedsDisplay()
-    }
-}
-#endif

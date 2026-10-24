@@ -1,4 +1,3 @@
-#if os(macOS)
 import Accelerate
 import Foundation
 
@@ -799,4 +798,3 @@ enum ChainCoherence {
         return out
     }
 }
-#endif

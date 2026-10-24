@@ -1,4 +1,3 @@
-#if os(macOS)
 import Accelerate
 import AVFoundation
 import Foundation
@@ -18,31 +17,9 @@ import Foundation
 // chromagram → Krumhansl-Schmuckler template matching for the key, and a
 // four-feature vocal-activity detector.
 //
-// Vocal activity (v5). The three mono-spectral cues that shipped in v4 —
-// vocal-band energy share, band spectral flatness, 2–8 Hz syllable/vibrato
-// modulation — could not tell "a harmonic instrument sitting in the mid band"
-// (sax, distorted guitar, a synth lead) from "someone singing"; validated
-// against StemKit separation on the eval corpus, v4's top-scored windows often
-// held essentially no real vocal energy. v5 adds one cheap, orthogonal cue
-// (docs/automix-stems-predev.md §7.3), pure vDSP:
-//   • Mid/side centre ratio — lead vocals sit at the stereo centre (mid=L+R),
-//     accompaniment and effects spread wider (side=L−R); the vocal band's mid
-//     share is high when a centred voice is present. Needs the stereo signal,
-//     so `analyze(fileAt:)` decodes L/R in parallel with the mono pass (a
-//     second, band-energy-only FFT sweep — see `stereoVoiceEnergies`). The
-//     mono `analyze(samples:)` test entry has no stereo image and skips it.
-//
-// §7.3's other proposal, an HPSS harmonic share (Fitzgerald 2010 median-filter
-// harmonic/percussive separation over the vocal band), was implemented and
-// measured against the same ground truth and did NOT survive: its standalone
-// correlation with per-second vocal/mix energy was +0.015, and a weight search
-// under leave-one-playlist-out CV drove its weight to ~0 in all six folds.
-// Sustained harmonic energy in 200 Hz–4 kHz is as much guitar/synth/strings as
-// voice, so it adds nothing the band and tonality cues do not already carry. It
-// was removed rather than left at weight 0 because it was by far the most
-// expensive part of the analysis (a per-bin double median filter, plus
-// retaining the whole vocal-band spectrogram). Recoverable from git history if
-// a future cue wants it.
+// Vocal activity combines band energy, spectral tonality, syllable-rate
+// modulation and stereo centre share. These CPU features guide transition
+// timing without loading a model.
 enum TrackAnalyzer {
     static let analysisSampleRate: Double = 22_050
 
@@ -55,30 +32,7 @@ enum TrackAnalyzer {
     /// Decode to 22.05 kHz mono, then analyze. CPU-bound; callers run this
     /// off the main thread.
     ///
-    /// **On the pool, and what it is worth.** Two whole-track decodes happen
-    /// here, and every caller that matters calls this in a loop:
-    /// `QueueOrderSelector` walks its candidate pool, the app analyzes a
-    /// queue — all off the main thread, on a `Task.detached`, where no runloop
-    /// turn ever drains the outer pool.
-    ///
-    /// The pool is here as the boundary that *bounds* that, not because it was
-    /// found to be reclaiming anything. It was measured, and it is worth
-    /// saying what the measurement said, so nobody re-derives it: over a
-    /// 20-track corpus walk in one process, peak physical footprint was
-    /// **451.9 MB** with no pools anywhere and **451.7 MB** with them —
-    /// and, decisively, the same **451.4 MB** over a 5-track walk. Nothing
-    /// accumulates across tracks. The peak is one track's own working set (the
-    /// decoded `[Float]` and the STFT feature matrices, all Swift arrays freed
-    /// deterministically by ARC), and on this path AVFoundation's `read` and
-    /// `convert` autorelease nothing that matters.
-    ///
-    /// So: a per-*chunk* pool inside `decodeMono` was tried and removed — it
-    /// bought 0.16 MB for a restructured hot loop. This per-*file* one stays,
-    /// because it costs nothing once per track and it is the right place for
-    /// the `AVAudioFile` and `AVAudioConverter` this creates. It is insurance,
-    /// not a fix, and the memory it was meant to fix was never here — see the
-    /// GPU cache note on `StemSeparator.trimCache`, which is where the
-    /// half-gigabyte actually was.
+    /// Bound the lifetime of AVFoundation objects during repeated track analysis.
     static func analyze(fileAt url: URL) throws -> TrackAnalysis {
         try autoreleasepool {
             let samples = try decodeMono(url: url, targetRate: analysisSampleRate)
@@ -1155,9 +1109,8 @@ enum TrackAnalyzer {
     ///
     /// Cue 4 is the fix for v4's shortfall: the three mono-spectral cues cannot
     /// tell "a harmonic instrument sitting in the mid band" (sax, distorted
-    /// guitar, synth lead) from "someone singing", and validated against StemKit
-    /// separation, v4's top-scored windows often held almost no real vocal
-    /// energy. Lead vocals are almost always panned centre while accompaniment
+    /// guitar, synth lead) from "someone singing". Lead vocals are usually
+    /// panned centre while accompaniment
     /// and effects spread wider, which the mono downmix throws away — measuring
     /// it recovers the single most informative cue available without a model.
     ///
@@ -1271,7 +1224,7 @@ enum TrackAnalyzer {
         return medianFilter3(raw)
     }
 
-    // Fusion weights, fit on the eval corpus against StemKit per-second
+    // Fusion weights, fit on the eval corpus against per-second
     // vocal/mix ground truth via an offline harness (18 tracks across all six
     // playlists, 3×30 s windows each; the harness lives in the branch history).
     // The search was run under leave-one-playlist-out CV; band-dominant weights
@@ -1347,4 +1300,3 @@ enum TrackAnalyzer {
         return out
     }
 }
-#endif

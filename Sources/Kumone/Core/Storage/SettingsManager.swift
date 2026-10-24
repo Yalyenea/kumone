@@ -72,8 +72,6 @@ enum LyricsAnnotation: String, CaseIterable, Identifiable {
 public enum NowPlayingMode: String, CaseIterable, Identifiable {
     case vinyl
     case classic
-    case immersive
-    case minimal
 
     public var id: String { rawValue }
 
@@ -81,8 +79,6 @@ public enum NowPlayingMode: String, CaseIterable, Identifiable {
         switch self {
         case .vinyl: return String(localized: "黑胶模式")
         case .classic: return String(localized: "经典模式")
-        case .immersive: return String(localized: "沉浸模式")
-        case .minimal: return String(localized: "简洁模式")
         }
     }
 }
@@ -106,17 +102,13 @@ final class SettingsManager: ObservableObject {
         static let fmMode = "settings.fmMode"
         static let unblock = "settings.enableUnblock"
         static let unblockSources = "settings.enabledUnblockSources"
-        static let autoCheckUpdates = "settings.autoCheckUpdates"
         static let desktopLyrics = "settings.showDesktopLyrics"
-        #if os(macOS)
         static let automix = "settings.automixEnabled"
         static let automixTransitions = "settings.automixTransitions"
         static let automixOrder = "settings.automixOrder"
-        static let automixStems = "settings.automixStems"
         static let loudnessCompensation = "settings.loudnessCompensation"
         static let audioCacheLimit = "settings.audioCacheLimit"
         static let outputDevice = "settings.outputDeviceUID"
-        #endif
         static let desktopLyricsCentered = "settings.desktopLyricsCentered"
         static let mainWindowAmbientBackground = "settings.showMainWindowAmbientBackground"
         static let mainWindowAmbientBackgroundIntensity = "settings.mainWindowAmbientBackgroundIntensity"
@@ -178,17 +170,6 @@ final class SettingsManager: ObservableObject {
         didSet { UserDefaults.standard.set(showLyricsTranslation, forKey: Keys.showTranslation) }
     }
 
-    /// Check for updates on launch. When off, no update sheet appears
-    /// automatically; the user can still check manually (#42).
-    @Published var autoCheckUpdates: Bool {
-        didSet {
-            UserDefaults.standard.set(autoCheckUpdates, forKey: Keys.autoCheckUpdates)
-            #if os(macOS)
-            UpdaterManager.shared.setAutomaticChecks(autoCheckUpdates)
-            #endif
-        }
-    }
-
     /// Reading shown for Japanese lyrics: a romaji line above, furigana over
     /// the kanji, or nothing.
     @Published var lyricsAnnotation: LyricsAnnotation {
@@ -224,11 +205,10 @@ final class SettingsManager: ObservableObject {
     @Published var showDesktopLyrics: Bool {
         didSet { UserDefaults.standard.set(showDesktopLyrics, forKey: Keys.desktopLyrics) }
     }
-    #if os(macOS)
 
     /// The AutoMix master switch. Off means no per-track analysis at all, and
-    /// every sub-setting below is inert. Opt-in: AutoMix costs CPU (analysis),
-    /// sometimes network (the order's candidates) and sometimes GPU (stems),
+    /// every sub-setting below is inert. Opt-in: AutoMix costs CPU (analysis)
+    /// and sometimes network (the order's candidates),
     /// so it does not turn itself on. macOS-only for now (spec §7).
     @Published var automixEnabled: Bool {
         didSet { UserDefaults.standard.set(automixEnabled, forKey: Keys.automix) }
@@ -250,13 +230,6 @@ final class SettingsManager: ObservableObject {
     /// AutoMix that is on.
     @Published var automixOrderEnabled: Bool {
         didSet { UserDefaults.standard.set(automixOrderEnabled, forKey: Keys.automixOrder) }
-    }
-
-    /// Let a hand-over separate stems on the GPU. Real money in heat and
-    /// battery, and it needs a model on disk, so it is opt-in on top of
-    /// opt-in; without it every gesture plays its whole-mix form.
-    @Published var automixStemsEnabled: Bool {
-        didSet { UserDefaults.standard.set(automixStemsEnabled, forKey: Keys.automixStems) }
     }
 
     /// Even out mastering loudness differences between songs, so the next
@@ -284,7 +257,6 @@ final class SettingsManager: ObservableObject {
     @Published var outputDeviceUID: String {
         didSet { UserDefaults.standard.set(outputDeviceUID, forKey: Keys.outputDevice) }
     }
-    #endif
 
     /// Lock the desktop-lyrics capsule to the horizontal centre of the screen
     /// instead of the free-drag position (#48).
@@ -294,11 +266,9 @@ final class SettingsManager: ObservableObject {
 
     static let mainWindowAmbientBackgroundIntensityRange = 0.5...1.5
 
-    #if os(macOS)
     /// Default song-cache ceiling, shared with `AudioCache` so the two cannot
     /// disagree about what "unset" means.
     nonisolated static let defaultAudioCacheLimit: Int64 = 2_147_483_648  // 2 GB
-    #endif
 
     /// Artwork-tinted overlay on the main app interface.
     @Published var showMainWindowAmbientBackground: Bool {
@@ -332,7 +302,7 @@ final class SettingsManager: ObservableObject {
         audioCacheSizeMB = normalizedAudioCacheSizeMB
         defaults.set(normalizedAudioCacheSizeMB, forKey: Keys.audioCacheSizeMB)
         appearance = defaults.string(forKey: Keys.appearance).flatMap(AppAppearance.init) ?? .auto
-        nowPlayingMode = defaults.string(forKey: Keys.nowPlayingMode).flatMap(NowPlayingMode.init) ?? .immersive
+        nowPlayingMode = defaults.string(forKey: Keys.nowPlayingMode).flatMap(NowPlayingMode.init) ?? .classic
         showLyricsTranslation = defaults.object(forKey: Keys.showTranslation) as? Bool ?? true
         // Carry over the old on/off romaji toggle for anyone who had it on.
         lyricsAnnotation = defaults.string(forKey: Keys.annotation).flatMap(LyricsAnnotation.init)
@@ -344,20 +314,16 @@ final class SettingsManager: ObservableObject {
         } else {
             enabledAudioSourceIDs = Set(AudioSourceID.allCases)
         }
-        autoCheckUpdates = defaults.object(forKey: Keys.autoCheckUpdates) as? Bool ?? true
         showDesktopLyrics = defaults.object(forKey: Keys.desktopLyrics) as? Bool ?? false
-        #if os(macOS)
         automixEnabled = defaults.object(forKey: Keys.automix) as? Bool ?? false
         automixTransitionsEnabled =
             defaults.object(forKey: Keys.automixTransitions) as? Bool ?? true
         automixOrderEnabled = defaults.object(forKey: Keys.automixOrder) as? Bool ?? false
-        automixStemsEnabled = defaults.object(forKey: Keys.automixStems) as? Bool ?? false
         loudnessCompensationEnabled =
             defaults.object(forKey: Keys.loudnessCompensation) as? Bool ?? true
         audioCacheLimit = (defaults.object(forKey: Keys.audioCacheLimit) as? Int64)
             ?? Self.defaultAudioCacheLimit
         outputDeviceUID = defaults.string(forKey: Keys.outputDevice) ?? ""
-        #endif
         desktopLyricsCentered = defaults.object(forKey: Keys.desktopLyricsCentered) as? Bool ?? false
         showMainWindowAmbientBackground = defaults.object(
             forKey: Keys.mainWindowAmbientBackground

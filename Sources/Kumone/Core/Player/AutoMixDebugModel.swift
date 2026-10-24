@@ -1,4 +1,3 @@
-#if os(macOS)
 import Foundation
 
 // Live read-out of the AutoMix pipeline, for the person running listening
@@ -12,11 +11,6 @@ import Foundation
 // it is closed (`isActive` is false, so a push writes one struct and stops)
 // and what keeps it honest when it is open — every number shown is a number
 // the player itself acted on.
-//
-// The view is macOS-only; the model is not, so PlayerService can push
-// unconditionally instead of carrying `#if os(macOS)` at a dozen call sites.
-// On iOS every plan is `.gapless` and nothing ever activates it, so the whole
-// thing costs a Bool test per push.
 
 /// One deck's rate and gain stages, as the panel prints them.
 ///
@@ -95,8 +89,7 @@ struct AutoMixDebugNext: Equatable {
     var lufs: Double?
     var sectionCount: Int?
     var structureConfidence: Double?
-    /// A `.lrc` sits next to the cached file — i.e. a `vocalExchange` has words
-    /// to aim at when this track becomes the *outgoing* side, one seam later.
+    /// The cached file has timed lyrics for planning complete line endings.
     var hasLyricSidecar = false
 }
 
@@ -115,7 +108,6 @@ struct AutoMixDebugPlan: Equatable {
     var incomingRate: Float?
     var outroEffect = "fade"
     var stagedEQ = false
-    var stemTechnique: String?
     /// The transition score the plan carries, named the way the predev names
     /// it ("cutOnOne+echoThrow"). Nil on every shipped seam — a score only
     /// appears with the panel's own toggle on.
@@ -194,18 +186,16 @@ struct AutoMixDebugOrder: Equatable {
     var candidates: [AutoMixDebugCandidate] = []
 }
 
-/// The stem pre-render's own little state machine, mirrored from
-/// `PlayerService.updateStemPrerender`.
+/// The transition pre-render state mirrored from `PlayerService`.
 enum AutoMixPrerenderState: Equatable {
     case idle
     /// A hand-over is armed and there is simply nothing to pre-render for it:
-    /// the plan carries neither a stem technique nor a score. Told apart from
+    /// the plan carries no score. Told apart from
     /// `.idle` (nothing armed at all) because the two answer different
     /// questions, and because this is the state a refused score leaves behind —
     /// a seam that will play today's blend, which is not a failure of anything.
     case notNeeded
-    /// Separation + render running for this seam. The renderer is one call, so
-    /// "separating" and "rendering" are not told apart here.
+    /// Whole-mix render running for this seam.
     case rendering(String)
     /// Finished and accepted by the engine: this seam will be spliced.
     case armed(String)
@@ -237,7 +227,7 @@ struct AutoMixDebugSeam: Identifiable, Equatable {
     /// is a queue rebuild and a seek, not a download.
     var outgoingTrack: Track?
     var incomingTrack: Track?
-    /// The stem gesture the plan asked for, kept out of `planned` because a
+    /// The score gesture the plan asked for, kept out of `planned` because a
     /// feedback line is mostly a question about the gesture.
     var gesture: String?
     /// The debug overrides that were on when this seam played. A forced plan
@@ -273,7 +263,6 @@ struct AutoMixOverrides: Equatable, Codable {
     var forceBeatMatch = false
     var disableTempoRamp = false
     var disableDominantDeckBlend = false
-    var disableTwoClockExchange = false
     /// **Transition score (P1)**, and the one switch here spelled as an
     /// *enable*: the feature ships dark (`Config.scoreEnabled` is false), so
     /// "off" is already the config's own value and there is nothing to shadow.
@@ -345,9 +334,7 @@ struct AutoMixOverrides: Equatable, Codable {
     /// complaint, same reasoning about which regime should be the one you have
     /// to *ask* for.
     var enableMasterLimiter = false
-    /// Not a planner knob: skips the stem pre-render entirely so the seam is
-    /// carried by the live two-deck path — which is the *approximation* of a
-    /// stem hand-over, and the thing an A/B wants to compare against.
+    /// Skip score pre-rendering to compare the live two-deck transition.
     var forceLivePath = false
     /// **Pin the splice head's latency compensation**, in milliseconds — the
     /// one override here that is a number rather than a switch, because the
@@ -373,7 +360,6 @@ struct AutoMixOverrides: Equatable, Codable {
         if forceBeatMatch { names.append("forceBeatMatch") }
         if disableTempoRamp { names.append("noTempoRamp") }
         if disableDominantDeckBlend { names.append("noDominantDeck") }
-        if disableTwoClockExchange { names.append("noTwoClock") }
         if enableScore { names.append("score") }
         if enableIntent { names.append("intent") }
         if verboseEngineTrace { names.append("trace") }
@@ -814,7 +800,6 @@ enum AutoMixDebugOverrides {
         // block set both pairs precisely so this composition works.
         if overrides.disableTempoRamp { config.tempoRampEnabled = false }
         if overrides.disableDominantDeckBlend { config.dominantDeckBlend = false }
-        if overrides.disableTwoClockExchange { config.twoClockExchange = false }
         // Enables: `scoreEnabled` and `intentEnabled` both ship false in
         // `Config.standard`, so these switches are spelled as enables.
         if overrides.enableScore { config.scoreEnabled = true }
@@ -834,7 +819,7 @@ enum AutoMixDebugOverrides {
 /// thing it is trying to audition: the seam is not an instant, it is a gesture
 /// with a run-up. A beat-matched hand-over glides the outgoing deck onto its
 /// matched tempo for thirteen seconds first, and pads its headroom before
-/// that; a stem hand-over is a background render that starts a minute out.
+/// that; a scored hand-over is a background render that starts a minute out.
 /// Landing inside either produces a *different* transition from the one the
 /// listener meant to judge, and — worse — one that looks the same in the panel.
 ///
@@ -855,8 +840,8 @@ enum AutoMixSeamJump {
         /// The outgoing deck's headroom pad, in dB (≤ 0). Its glide-on is part
         /// of the gesture and finishes exactly where the ramp begins.
         var padDB: Double = 0
-        /// A stem technique is planned…
-        var needsStemPrerender = false
+        /// A score is planned…
+        var needsPrerender = false
         /// …and the engine has already been handed a segment for it.
         var segmentArmed = false
         /// How far ahead of the splice the orchestration starts a render job.
@@ -886,9 +871,9 @@ enum AutoMixSeamJump {
                 TransitionAutomation.ratePadLeadSeconds(i.padDB))))
         }
         let prerenderNeed = i.prerenderLead + i.prerenderHandoff
-        if i.needsStemPrerender, !i.segmentArmed {
+        if i.needsPrerender, !i.segmentArmed {
             candidates.append((prerenderNeed, String(
-                format: "stem pre-render runway %.0fs", prerenderNeed)))
+                format: "transition pre-render runway %.0fs", prerenderNeed)))
         }
         let winner = candidates.max { $0.0 < $1.0 }!
         // A short track cannot hold the run-up the plan wants; land at the top
@@ -900,7 +885,7 @@ enum AutoMixSeamJump {
             reason: lead < winner.0
                 ? "\(winner.1) — clamped to the start of the track"
                 : winner.1,
-            losesPrerender: i.needsStemPrerender && !i.segmentArmed
+            losesPrerender: i.needsPrerender && !i.segmentArmed
                 && lead < prerenderNeed)
     }
 }
@@ -1027,7 +1012,6 @@ extension AutoMixDebugPlan {
         }
         outroEffect = AutoMixDebugFormat.outroEffect(planned.style.outroEffect)
         stagedEQ = planned.style.stagedEQ
-        stemTechnique = planned.style.stemTechnique?.label
         score = planned.style.score?.label
         // Shown whenever the aiming layer ran — which is whenever it left a
         // sentence behind — rather than only when a score survived to arming.
@@ -1045,4 +1029,3 @@ extension AutoMixDebugPlan {
         }
     }
 }
-#endif

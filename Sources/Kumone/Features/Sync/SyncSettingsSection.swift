@@ -51,9 +51,7 @@ struct SyncSettingsSection: View {
                 Button("重新连接") {
                     showDirectoryPicker = true
                 }
-                #if os(macOS)
                 .controlSize(.small)
-                #endif
             }
             if let error = errorMessage {
                 Text(error).font(.caption).foregroundStyle(.red)
@@ -99,8 +97,6 @@ struct SyncSettingsSection: View {
                 Button("更改同步密码") { passphraseMode = .create }
             }
         }
-        #if os(macOS)
         .controlSize(.small)
-        #endif
     }
 }

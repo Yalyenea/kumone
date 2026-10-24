@@ -51,7 +51,7 @@ import Testing
     }
 
     @Test func withoutTheAutoMixOrderTheCycleIsTheTwoStateShuffleItAlwaysWas() {
-        // iOS, AutoMix off, or the order sub-setting off. The button must
+        // AutoMix off, or the order sub-setting off. The button must
         // behave exactly as it did before the third state existed.
         #expect(PlayerService.nextQueueOrder(after: .listed,
                                              autoMixAvailable: false) == .shuffled)

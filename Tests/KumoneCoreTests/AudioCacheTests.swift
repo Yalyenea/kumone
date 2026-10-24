@@ -240,29 +240,11 @@ struct AudioCacheTests {
         #expect(!FileManager.default.fileExists(atPath: session.partialFileURL.path))
     }
 
-    @Test func resourceLoaderUsesAFileUTIAndRejectsFilesAboveTheCacheLimit() {
-        #expect(CachingAudioResourceLoader.resourceContentType(for: "mp3") == "public.mp3")
-        #expect(CachingAudioResourceLoader.resourceContentType(for: "jpg") == nil)
-        #expect(CachingAudioResourceLoader.canCache(contentLength: 100_000_000, maximumSizeMB: 100))
-        #expect(!CachingAudioResourceLoader.canCache(contentLength: 100_000_001, maximumSizeMB: 100))
-    }
-
-    @Test func rangePlannerSharesCachedAndInFlightBytes() {
-        var planner = ByteRangePlanner()
-
-        let firstRequest = planner.scheduleMissingRanges(in: 0..<100)
-        #expect(firstRequest.map(\.range) == [0..<100])
-
-        let overlappingRequest = planner.scheduleMissingRanges(in: 50..<150)
-        #expect(overlappingRequest.map(\.range) == [100..<150])
-
-        planner.recordCached(0..<100)
-        #expect(planner.scheduleMissingRanges(in: 0..<150).isEmpty)
-
-        planner.finish(firstRequest[0].id)
-        planner.finish(overlappingRequest[0].id)
-        planner.recordCached(100..<150)
-        #expect(planner.isComplete(contentLength: 150))
+    @Test func prefetchValidatesAudioTypesAndCacheSize() {
+        #expect(QueuePrefetcher.resourceContentType(for: "mp3") == "public.mp3")
+        #expect(QueuePrefetcher.resourceContentType(for: "jpg") == nil)
+        #expect(QueuePrefetcher.canCache(contentLength: 100_000_000, maximumSizeMB: 100))
+        #expect(!QueuePrefetcher.canCache(contentLength: 100_000_001, maximumSizeMB: 100))
     }
 
     private func makeCache() -> (AudioCache, URL) {

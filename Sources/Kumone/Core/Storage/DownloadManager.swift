@@ -1,9 +1,6 @@
 import Combine
 import Foundation
 import Network
-#if os(iOS)
-import UIKit
-#endif
 
 @MainActor
 final class DownloadProgress: ObservableObject {
@@ -62,7 +59,6 @@ final class DownloadManager: ObservableObject {
         let manager = DownloadManager(store: .shared, metadata: .shared, persistence: DownloadCatalogStore(directory: root),
                                       transport: BackgroundDownloadTransport(inbox: root.appendingPathComponent("inbox")),
                                       accountScope: AccountStore.shared.offlineScope)
-        manager.observeForeground()
         if !KumonePaths.isOfflineUITest { manager.monitorNetwork() }
         Task { await manager.start() }
         return manager
@@ -147,15 +143,11 @@ final class DownloadManager: ObservableObject {
     private var restoration: Task<Void, Never>?
     private var eventTask: Task<Void, Never>?
     private var monitor: NWPathMonitor?
-    private var backgroundCompletion: (() -> Void)?
-    private var backgroundEventsDelivered = false
     private var libraryScanID = UUID()
     /// Songs merged while the current scan runs; their entries are newer than
     /// the scan's snapshot, so the scan keeps them when it publishes.
     private var libraryMergedTrackIDs: Set<Int> = []
     private var batchOperations = 0
-    private var preparationSuspended = false
-    private var foregroundObserver: NSObjectProtocol?
     /// Weak so an entry dies with the last row showing it; the view that asked
     /// for it holds the only strong reference.
     private struct WeakTrackState { weak var state: TrackDownloadState? }
@@ -195,10 +187,6 @@ final class DownloadManager: ObservableObject {
                     guard let self, !Task.isCancelled else { return }
                     await self.restoration?.value
                     if self.isReady { await self.handle(event) }
-                    else if case .backgroundEventsFinished = event {
-                        self.backgroundEventsDelivered = true
-                        self.finishBackgroundEventsIfPossible()
-                    }
                     // Completed receipts remain on disk until restoration can
                     // read the catalog. Drain transient progress in the meantime.
                 }
@@ -583,33 +571,12 @@ final class DownloadManager: ObservableObject {
         workers.values.forEach { $0.task.cancel() }
         displayWorkers.values.forEach { $0.task.cancel() }
         monitor?.cancel()
-        if let foregroundObserver { NotificationCenter.default.removeObserver(foregroundObserver) }
     }
 
-    func preparationExpired(jobID: UUID, attempt: UUID) {
-        guard let i = index(jobID), catalog.jobs[i].accountScope == accountScope,
-              [.resolving, .downloading].contains(catalog.jobs[i].status),
-              catalog.jobs[i].attempt == attempt, workers[jobID]?.attempt == attempt else { return }
-        preparationSuspended = true
-        let token = catalog.jobs[i].token
-        workers.removeValue(forKey: jobID)?.task.cancel()
-        catalog.jobs[i].attempt = nil
-        catalog.jobs[i].status = network.permits(catalog.jobs[i]) ? .queued : .waitingNetwork
-        publish()
-        Task {
-            if let token { await store.releaseDownloadReservation(token: token) }
-            try? await persist()
-        }
-    }
 
-    func resumeAfterForeground() {
-        preparationSuspended = false
-        if !isReady { Task { await start() }; return }
-        setNetwork(network)
-    }
 
     private func schedule() {
-        guard isReady, batchOperations == 0, !preparationSuspended else { return }
+        guard isReady, batchOperations == 0 else { return }
         var running = catalog.jobs.filter { $0.accountScope == accountScope && ($0.status.isWorking || ($0.status == .waitingNetwork && $0.attempt != nil && network.permits($0))) }.count
         let limit = network.expensive ? 1 : 2
         var changed = false
@@ -634,12 +601,6 @@ final class DownloadManager: ObservableObject {
             if workers[job.id]?.attempt == job.attempt { workers[job.id] = nil; schedule() }
         }
         guard let token = job.token else { return }
-        #if os(iOS)
-        let activity = DownloadPreparationActivity { [weak self] in
-            if let attempt = job.attempt { self?.preparationExpired(jobID: job.id, attempt: attempt) }
-        }
-        defer { activity.end() }
-        #endif
         guard current(job) else { return }
         do {
             try await persist()
@@ -790,14 +751,6 @@ final class DownloadManager: ObservableObject {
                     publish(); try? await persist(); schedule()
                 } else { await fail(job: job, error: NSError(domain: domain, code: code)) }
             }
-        case .backgroundEventsFinished:
-            // Register the next small batch with the system before handing
-            // execution back to iOS; metadata work does not delay this handoff.
-            let preparing = Array(workers.values)
-            for worker in preparing { await worker.task.value }
-            try? await persist()
-            backgroundEventsDelivered = true
-            finishBackgroundEventsIfPossible()
         }
     }
 
@@ -992,12 +945,7 @@ final class DownloadManager: ObservableObject {
     }
 
     static func platformCachedTrackIDs() async -> Set<Int> {
-        #if os(macOS)
         return await EngineAudioCache.shared.cachedTrackIDs()
-        #else
-        guard SettingsManager.shared.enableAudioCache else { return [] }
-        return (try? await AudioCache.shared.cachedTrackIDs(allowsUnblock: SettingsManager.shared.canResolveUnblockedTracks)) ?? []
-        #endif
     }
 
     nonisolated private static func precedes(_ lhs: OfflineLibraryTrack, _ rhs: OfflineLibraryTrack) -> Bool {
@@ -1028,27 +976,7 @@ final class DownloadManager: ObservableObject {
         offlineTracks = merged
     }
 
-    func registerBackgroundCompletion(_ completion: @escaping () -> Void) {
-        backgroundCompletion = completion
-        finishBackgroundEventsIfPossible()
-    }
 
-    private func finishBackgroundEventsIfPossible() {
-        guard backgroundEventsDelivered, let completion = backgroundCompletion else { return }
-        backgroundCompletion = nil
-        backgroundEventsDelivered = false
-        completion()
-    }
-
-    private func observeForeground() {
-        #if os(iOS)
-        foregroundObserver = NotificationCenter.default.addObserver(
-            forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in self?.resumeAfterForeground() }
-        }
-        #endif
-    }
 
     private func monitorNetwork() {
         let monitor = NWPathMonitor()
@@ -1113,14 +1041,5 @@ final class DownloadManager: ObservableObject {
     private func persist() async throws {
         catalog.revision += 1
         try await persistence.save(catalog)
-    }
-}
-
-@MainActor
-public enum OfflineDownloadEvents {
-    public static func handleBackgroundSession(identifier: String, completion: @escaping () -> Void) {
-        guard identifier == BackgroundDownloadTransport.identifier else { completion(); return }
-        DownloadManager.shared.registerBackgroundCompletion(completion)
-        Task { await DownloadManager.shared.start() }
     }
 }

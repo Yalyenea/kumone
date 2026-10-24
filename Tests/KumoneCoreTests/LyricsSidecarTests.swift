@@ -4,8 +4,7 @@ import Testing
 @testable import KumoneCore
 
 // The lyrics bridge: what the app fetches from Netease has to land on disk in
-// the exact shape `Audition.Lyrics.load` expects, because that read is the only
-// thing standing between a `vocalExchange` and its vocal-trough fallback.
+// the shape `Audition.Lyrics.load` expects for line-aware transition planning.
 //
 // No engine, no network: the helper is a pure "text + a file that exists" →
 // "file next to it" function, so every case here is a directory and a string.

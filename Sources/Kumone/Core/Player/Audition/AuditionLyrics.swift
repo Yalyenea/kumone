@@ -1,14 +1,8 @@
-#if os(macOS)
 import Foundation
 
-// Timed lyrics, read from the `.lrc` sidecar sitting next to a corpus track.
-//
-// The console's AI bundle is otherwise blind to *words*: it can say the
-// outgoing track's vocal curve is hot at 3:12 but not that the singer is two
-// lines from the end of the final chorus. A phrase hand-over is a decision
-// about words, so the words go in the bundle.
-//
-// Nothing in playback reads this — it exists for the tuning surface.
+// Timed lyrics from an audio track's `.lrc` sidecar. The planner uses line
+// endings to choose a complete phrase, and score compilation can anchor an
+// echo throw to the outgoing track's final line.
 
 extension Audition {
 
@@ -131,18 +125,6 @@ extension Audition {
             load(for: track).map(lineEnds) ?? []
         }
 
-        /// Both halves of one track's lyric clock — where each line begins and
-        /// where it stops — for the planner, which is a pure function and is
-        /// handed this rather than reading it.
-        ///
-        /// Nil when the track has no `.lrc`, which is what makes every
-        /// lyric-aware planner rule inert on a library without sidecars.
-        static func timing(for track: URL)
-            -> TransitionPlanner.PlanContext.LyricTiming? {
-            guard let lines = load(for: track), !lines.isEmpty else { return nil }
-            return .init(lineStarts: lines.map(\.time), lineEnds: lineEnds(lines))
-        }
-
         /// The last `count` lines — what the outgoing track is still singing
         /// when the hand-over starts.
         public static func tail(_ lines: [LyricLine], count: Int) -> [LyricLine] {
@@ -155,4 +137,3 @@ extension Audition {
         }
     }
 }
-#endif

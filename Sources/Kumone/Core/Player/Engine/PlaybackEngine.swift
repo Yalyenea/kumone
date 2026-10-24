@@ -1,4 +1,3 @@
-#if os(macOS)
 import Accelerate
 import AudioToolbox
 import AVFoundation
@@ -354,17 +353,14 @@ final class PlaybackEngine: @unchecked Sendable {
     /// overload and printed on the master AU readback line, so a session that
     /// sounded rough can be told apart from one that merely felt rough.
     private var overloadCount = 0
-    #if os(macOS)
     private var overloadListener: AudioObjectPropertyListenerBlock?
     private var overloadListenerDevice: AudioDeviceID?
     /// Uptime seconds of the last trace dump the overload sentinel spent.
     private var lastOverloadDumpAt: Double?
-    #endif
 
     /// The second half of a global pause, waiting for the chain to drain;
     /// cancelled by whatever leaves the pause first. See `pause()`.
     private var pauseDrain: DispatchWorkItem?
-    private var sessionConfigured = false
 
     // Stream backpressure: pause the download when this many ~0.5s buffers
     // are scheduled but unplayed, resume below the low mark.
@@ -455,7 +451,7 @@ final class PlaybackEngine: @unchecked Sendable {
         /// counted in ticks the automation fell behind the audio it shapes.
         var lastTickUptime: TimeInterval?
         var midpointSent = false
-        /// A pre-rendered stem hand-over for exactly this plan, if one was
+        /// A pre-rendered scored hand-over for exactly this plan, if one was
         /// finished in time. Nil is the ordinary case and means the live
         /// two-deck overlap below runs, unchanged.
         var segment: TransitionSegment?
@@ -634,7 +630,7 @@ final class PlaybackEngine: @unchecked Sendable {
 
         // Output device / route changes stop the engine and wipe every player
         // node's schedule — on macOS this fires when switching audio devices,
-        // on iOS on route changes. Rebuild and resume from the cached
+        // when the output route changes. Rebuild and resume from the cached
         // positions, or playback dies the moment headphones are plugged in.
         configObserver = NotificationCenter.default.addObserver(
             forName: .AVAudioEngineConfigurationChange, object: engine, queue: nil
@@ -653,9 +649,7 @@ final class PlaybackEngine: @unchecked Sendable {
         faderFlushTimer?.cancel()
         rideTimer?.cancel()
         watchdogTimer?.cancel()
-        #if os(macOS)
         removeOverloadListenerLocked()
-        #endif
         eventContinuation.finish()
     }
 
@@ -1012,7 +1006,6 @@ final class PlaybackEngine: @unchecked Sendable {
 
     /// One IO cycle of the output device, in seconds; 0 when it cannot be read.
     private func ioBufferDurationLocked() -> TimeInterval {
-        #if os(macOS)
         guard let unit = engine.outputNode.audioUnit else { return 0 }
         var frames: UInt32 = 0
         var size = UInt32(MemoryLayout<UInt32>.size)
@@ -1021,9 +1014,6 @@ final class PlaybackEngine: @unchecked Sendable {
         let rate = engine.outputNode.outputFormat(forBus: 0).sampleRate
         guard status == noErr, rate > 0 else { return 0 }
         return Double(frames) / rate
-        #else
-        return AVAudioSession.sharedInstance().ioBufferDuration
-        #endif
     }
 
     func resume() {
@@ -1152,7 +1142,6 @@ final class PlaybackEngine: @unchecked Sendable {
                 "plan armed \(from.rawValue)→\(to.rawValue) "
                     + "\(Self.journalPlan(resolved.plan)) "
                     + String(format: "ride=%+.2fdB ", resolved.rideDB)
-                    + "stem=\(resolved.style.stemTechnique?.label ?? "none") "
                     // Only when the intent layer ran at all: an `intent=off`
                     // on every line of a shipped journal would be noise, and
                     // its absence already says the layer is dark.
@@ -1586,22 +1575,13 @@ final class PlaybackEngine: @unchecked Sendable {
 
     private func ensureEngineRunningLocked() {
         guard !engine.isRunning else { return }
-        #if os(iOS)
-        if !sessionConfigured {
-            sessionConfigured = true
-            try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, policy: .longFormAudio, options: [])
-            try? AVAudioSession.sharedInstance().setActive(true)
-        }
-        #endif
         engine.prepare()
         do {
             try engine.start()
             startClockTimerLocked()
-            #if os(macOS)
             // The output unit only settles on a device once it has started;
             // this is the first moment there is one to listen to.
             refreshOverloadListenerLocked()
-            #endif
         } catch {
             // Surface as a stream failure on whichever deck wanted to play.
             for (deck, state) in deckStates where state.isPlaying {
@@ -5399,7 +5379,6 @@ final class PlaybackEngine: @unchecked Sendable {
 
     // MARK: - Output device (macOS)
 
-    #if os(macOS)
     /// Point the engine's output at a specific CoreAudio device, or at the
     /// system default when `deviceID` is nil.
     ///
@@ -5519,12 +5498,11 @@ final class PlaybackEngine: @unchecked Sendable {
         lastOverloadDumpAt = now
         dumpEngineTraceLocked(reason: "overload")
     }
-    #endif
 
     // MARK: - Configuration changes (locked)
 
     /// The engine stopped because the output hardware changed (new default
-    /// device on macOS, route change on iOS). Player-node schedules are gone;
+    /// output device). Player-node schedules are gone;
     /// rebuild the graph and resume every active deck from its cached
     /// position.
     /// Set by `applyOutputDeviceLocked` to the moment its own rebuild stops
@@ -5538,10 +5516,8 @@ final class PlaybackEngine: @unchecked Sendable {
         PlaybackJournal.note("graph rebuild begin reason=\(reason) "
                              + "paused=\(isPaused) \(journalRates)")
         rebuildGraphLocked()
-        #if os(macOS)
         // The route may have moved; the sentinel follows it.
         refreshOverloadListenerLocked()
-        #endif
         PlaybackJournal.note("graph rebuild end reason=\(reason) "
                              + "running=\(engine.isRunning) \(journalRates)")
     }
@@ -5640,4 +5616,3 @@ final class PlaybackEngine: @unchecked Sendable {
         if isPaused, pauseDrain == nil, engine.isRunning { engine.pause() }
     }
 }
-#endif

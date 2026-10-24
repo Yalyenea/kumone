@@ -93,10 +93,6 @@ struct ImageThumbnailTests {
     }
 
     private func cgImage(_ image: PlatformImage) throws -> CGImage {
-        #if os(macOS)
         return try #require(image.cgImage(forProposedRect: nil, context: nil, hints: nil))
-        #else
-        return try #require(image.cgImage)
-        #endif
     }
 }

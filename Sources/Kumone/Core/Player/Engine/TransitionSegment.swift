@@ -1,17 +1,12 @@
-#if os(macOS)
 import AVFoundation
 import Foundation
 
 /// A hand-over that has already been rendered, waiting to be spliced into
 /// playback in place of the live two-deck overlap.
 ///
-/// Stem techniques cannot be performed by the live graph: separating a vocal
-/// costs seconds per window and the deck chain has nowhere to put the result.
-/// So a hand-over that asks for one is rendered ahead of time by the very code
-/// the offline renderer uses (`OfflineTransitionRenderer.renderMix`, stem
-/// layer included), and the engine plays *that* instead — the outgoing deck
-/// stops at the segment's head, the incoming deck resumes at its tail, and in
-/// between there is one pre-mixed buffer carrying both tracks.
+/// Scores are rendered ahead of time by `OfflineTransitionRenderer.renderMix`.
+/// The outgoing deck stops at the segment's head and the incoming deck resumes
+/// at its tail; the buffer carries both tracks between those points.
 ///
 /// Everything the splice needs is here and nothing else: the buffer, where its
 /// two ends sit on the two songs' own clocks, and the two short windows at
@@ -117,4 +112,3 @@ struct TransitionSegment: @unchecked Sendable {
     /// Where the incoming deck is cued to when it takes over.
     var incomingResume: TimeInterval { incomingTime(at: handoffOutStart) }
 }
-#endif

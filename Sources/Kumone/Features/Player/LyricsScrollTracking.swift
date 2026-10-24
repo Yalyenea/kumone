@@ -4,10 +4,8 @@ import SwiftUI
 /// and for a few seconds after it comes to rest, so follow-the-song auto
 /// scrolling does not yank the list back mid-read.
 ///
-/// Scroll phases see every input — touch, trackpad, mouse wheel, momentum —
-/// and leave out programmatic `scrollTo` animations. A `DragGesture` only sees
-/// pointer drags, which on macOS never fire for trackpad or wheel scrolling,
-/// so it is kept only as the fallback for iOS 16–17.
+/// Scroll phases track pointer, trackpad, wheel and momentum input while
+/// leaving out programmatic `scrollTo` animations.
 private struct LyricsScrollTracking: ViewModifier {
     @Binding var isUserScrolling: Bool
     let onResume: () -> Void
@@ -18,7 +16,7 @@ private struct LyricsScrollTracking: ViewModifier {
 
     func body(content: Content) -> some View {
         Group {
-            if #available(iOS 18, macOS 15, *) {
+
                 content.onScrollPhaseChange { _, phase in
                     switch phase {
                     case .interacting, .decelerating:
@@ -34,14 +32,7 @@ private struct LyricsScrollTracking: ViewModifier {
                         break
                     }
                 }
-            } else {
-                content.simultaneousGesture(
-                    DragGesture().onChanged { _ in
-                        isUserScrolling = true
-                        scheduleResume()
-                    }
-                )
-            }
+
         }
         .onDisappear {
             // The flag lives in the parent, which can outlive this list (lyrics

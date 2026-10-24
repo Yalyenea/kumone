@@ -1,4 +1,3 @@
-#if os(macOS)
 import Foundation
 
 // The offline face of the queue-reorder mode (docs/automix-queue-predev.md
@@ -207,7 +206,7 @@ extension Audition {
             for candidate in pool {
                 let incoming = analyses[candidate.path]
                 let planned = TransitionPlanner.plan(
-                    outgoing: outgoing, incoming: incoming, stems: .none,
+                    outgoing: outgoing, incoming: incoming,
                     config: plannerConfig,
                     context: .init(outgoingLyricLineEnds: lineEnds))
                 let sharesArtist = outgoingArtist != nil
@@ -309,7 +308,7 @@ extension Audition {
 
         func score(_ a: TrackAnalysis, _ b: TrackAnalysis) {
             let planned = TransitionPlanner.plan(
-                outgoing: a, incoming: b, stems: .none, config: plannerConfig,
+                outgoing: a, incoming: b, config: plannerConfig,
                 context: .init(outgoingLyricLineEnds: []))
             _ = QueueOrderScorer.score(outgoing: a, incoming: b, planned: planned,
                                        config: queueConfig, plannerConfig: plannerConfig)
@@ -447,7 +446,7 @@ extension Audition {
                     .map { candidate -> (key: URL, score: QueueOrderScore) in
                         let incoming = analyses[candidate.path]
                         let planned = TransitionPlanner.plan(
-                            outgoing: outgoing, incoming: incoming, stems: .none,
+                            outgoing: outgoing, incoming: incoming,
                             config: plannerConfig,
                             context: .init(outgoingLyricLineEnds: lineEnds))
                         let sharesArtist = outgoingArtist != nil
@@ -606,7 +605,7 @@ extension Audition {
         outgoingURL: URL, config: TransitionPlanner.Config
     ) -> PlannedTransition {
         TransitionPlanner.plan(
-            outgoing: a, incoming: b, stems: .none, config: config,
+            outgoing: a, incoming: b, config: config,
             context: .init(outgoingLyricLineEnds: Lyrics.lineEnds(for: outgoingURL)))
     }
 
@@ -614,4 +613,3 @@ extension Audition {
         url.deletingPathExtension().lastPathComponent
     }
 }
-#endif

@@ -1,8 +1,7 @@
 import Testing
 @testable import KumoneCore
-import AVFoundation
 import Foundation
-import os
+import AVFoundation
 
 /// Serialized, and each test starts from `reset()`: the host table is
 /// process-wide.
@@ -112,7 +111,7 @@ struct NeteaseCDNHostTests {
         #expect(NeteaseCDNHost.preferred(for: host, now: 1000) == host)
     }
 
-    // MARK: - CachingAudioResourceLoader
+    // MARK: - Prefetch failover
 
     @Test @MainActor func prefetchRetriesDNSFailureAndNextSongStartsOnTwin() async throws {
         let dead = url("m9401.music.126.net")
@@ -164,33 +163,7 @@ struct NeteaseCDNHostTests {
         #expect(NeteaseCDNHost.preferred(for: dead) == dead)
     }
 
-    /// The iOS path end to end: AVFoundation asks the caching loader for
-    /// byte ranges, the first host fails DNS, and the asset still loads, from
-    /// the twin.
-    @Test func cachingLoaderRetriesRangesOnTheTwin() async throws {
-        let dead = URL(string: "https://m9301.music.126.net/x/song.caf")!
-        CDNStub.configure(body: try Data(contentsOf: Fixtures.sixSecondCAF), deadHosts: [dead.host!])
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CDNStub.self]
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("NeteaseCDNHostTests-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: directory) }
 
-        let loader = try CachingAudioResourceLoader(
-            remoteURL: dead, trackID: 9301, requestedQuality: "exhigh", servedQuality: "exhigh",
-            source: .netease, maximumCacheSizeMB: 100,
-            cache: AudioCache(cacheDirectory: directory), sessionConfiguration: configuration)
-        defer { loader.cancel() }
-        let asset = AVURLAsset(url: loader.assetURL)
-        loader.attach(to: asset)
-
-        let duration = try await asset.load(.duration)
-        #expect(abs(duration.seconds - 6) < 0.1)
-        let hosts = CDNStub.requestedHosts()
-        #expect(hosts.first == "m9301.music.126.net")
-        #expect(hosts.contains("m9301c.music.126.net"))
-        #expect(NeteaseCDNHost.preferred(for: dead) == URL(string: "https://m9301c.music.126.net/x/song.caf")!)
-    }
 }
 
 private final class CDNDownloadTask: URLSessionDownloadTask, @unchecked Sendable {
@@ -199,56 +172,4 @@ private final class CDNDownloadTask: URLSessionDownloadTask, @unchecked Sendable
     init(url: URL) { self.url = url; super.init() }
     override var currentRequest: URLRequest? { URLRequest(url: url) }
     override var response: URLResponse? { receivedResponse }
-}
-
-/// Serves `body` with byte ranges for every host except the dead ones, which
-/// fail as an unresolvable name does.
-final class CDNStub: URLProtocol {
-    private struct State {
-        var body = Data()
-        var deadHosts: Set<String> = []
-        var requestedHosts: [String] = []
-    }
-    private static let state = OSAllocatedUnfairLock(initialState: State())
-
-    static func configure(body: Data, deadHosts: Set<String>) {
-        state.withLock { $0 = State(body: body, deadHosts: deadHosts) }
-    }
-
-    static func requestedHosts() -> [String] {
-        state.withLock { $0.requestedHosts }
-    }
-
-    override class func canInit(with request: URLRequest) -> Bool { true }
-    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
-    override func stopLoading() {}
-
-    override func startLoading() {
-        guard let url = request.url, let host = url.host else { return }
-        let (body, dead) = Self.state.withLock { state in
-            state.requestedHosts.append(host)
-            return (state.body, state.deadHosts.contains(host))
-        }
-        if dead {
-            client?.urlProtocol(self, didFailWithError: URLError(.cannotFindHost))
-            return
-        }
-        var lower = 0, upper = body.count - 1
-        if let range = request.value(forHTTPHeaderField: "Range"),
-           range.hasPrefix("bytes=") {
-            let bounds = range.dropFirst(6).split(separator: "-", omittingEmptySubsequences: false)
-            lower = Int(bounds[0]) ?? 0
-            if bounds.count > 1, let end = Int(bounds[1]) { upper = min(end, body.count - 1) }
-        }
-        let slice = body.subdata(in: lower..<(upper + 1))
-        let response = HTTPURLResponse(url: url, statusCode: 206, httpVersion: "HTTP/1.1", headerFields: [
-            "Content-Type": "audio/x-caf",
-            "Content-Length": "\(slice.count)",
-            "Content-Range": "bytes \(lower)-\(upper)/\(body.count)",
-            "Accept-Ranges": "bytes",
-        ])!
-        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: slice)
-        client?.urlProtocolDidFinishLoading(self)
-    }
 }

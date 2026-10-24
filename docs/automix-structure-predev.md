@@ -1,7 +1,7 @@
 # AutoMix 结构驱动选点 预研
 
 > 状态:设计(2026-08-28) · 未写任何产品代码,待听感负责人审阅后动工
-> 前置阅读:[`automix-spec.md`](automix-spec.md) · [`automix-stems-predev.md`](automix-stems-predev.md)
+> 前置阅读:[`automix-spec.md`](automix-spec.md)
 
 ---
 

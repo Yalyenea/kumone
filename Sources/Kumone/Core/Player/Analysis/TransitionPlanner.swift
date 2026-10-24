@@ -1,4 +1,3 @@
-#if os(macOS)
 import Foundation
 
 // Pure decision function: two analyses in, one TransitionPlan out (spec §5).
@@ -449,91 +448,6 @@ enum TransitionPlanner {
         /// Fade length used when the outgoing tail never settles.
         var tailCapacityFallback: TimeInterval = 4
 
-        // --- Stem layer. Read *only* when the caller passes
-        // `StemAvailability.ready`; at `.none` — every product path today —
-        // not one of these numbers is looked at, which is what makes the
-        // stem work provably additive.
-
-        /// How vocal-active the outgoing window has to be, relative to that
-        /// track's own mean, before a stem technique is worth asking for.
-        ///
-        /// Calibrated on the audition corpus: sliding 8 s windows put the
-        /// median at 1.00 and the 95th percentile between 1.16 and 1.58 per
-        /// track (`vocalActivity` is level-normalized, so its dynamic range is
-        /// narrow). 1.15 sits around each track's own 85th percentile — a
-        /// window that is *noticeably* more sung than the song's average — and
-        /// deliberately above `vocalClashRatio`, so anything the stem layer
-        /// calls "vocal-active" is by definition also on the clash side of the
-        /// two-lead-vocals rule.
-        var stemVocalActiveRatio: Double = 1.15
-        /// `acapellaOver` additionally needs the incoming opening to be
-        /// instrumental-leaning: at or below this share of its own mean vocal
-        /// density. Floating one track's vocal over another's is only a
-        /// technique when the other one is not singing; at the corpus's median
-        /// intake of ~1.0 it would just be the two-vocal pile-up the ducking
-        /// rule exists to prevent.
-        var stemAcapellaIncomingVocalMax: Double = 0.90
-        /// No stem technique on an overlap shorter than this: the curves in
-        /// `StemTechniqueLayer` (an accompaniment drop by 28 %, a vocal
-        /// retired by 96 %) need room, and a separation pass is far too
-        /// expensive to spend on a two-second clash-tier hand-over.
-        var stemMinOverlap: TimeInterval = 5
-        /// How far `vocalDuck` holds the outgoing vocal down, in dB of
-        /// attenuation (S1's blind test liked 9). Also the depth
-        /// `vocalExchange` degrades to when it cannot find a hand-over.
-        var stemDuckDepthDB: Double = 9
-        /// Where in the overlap `vocalExchange`'s hand-over may land, as a
-        /// share of the overlap. The compiler picks the outgoing lyric line-end
-        /// nearest the middle and then clamps it into this window: before 0.30
-        /// the incoming bed has not established itself and the swap sounds like
-        /// a cut; after 0.85 the new vocal has no room to arrive before the
-        /// outgoing deck is gone. Only read when a separator is available.
-        var stemExchangeHandoverMin: Double = 0.30
-        var stemExchangeHandoverMax: Double = 0.85
-        /// Two-clock hand-over: choose the vocal's hand-over instant L *relative
-        /// to* the floor swap S (`Geometry.swapOffset`) rather than relative to
-        /// the middle of the overlap. Off = the single-clock compile this
-        /// replaced, field-for-field — the knob exists so the A/B is a knob flip
-        /// and so the old shape stays pinned by a test.
-        ///
-        /// The two clocks are the whole idea: the instrumental floor changes
-        /// decks at S because that is where the low end and the staged EQ say
-        /// it does, and the *voice* changes decks at L because that is where a
-        /// sung line ends. A DJ move is those two instants being deliberately
-        /// different; a mix is them being the same instant twice.
-        var twoClockExchange: Bool = true
-        /// How far past the floor swap the outgoing singer may carry, in
-        /// seconds. A line-end inside `(S, S + this]` makes the hand-over a
-        /// `vocalCarryover`; nothing inside it makes it a `vocalYield`.
-        ///
-        /// 8 s is about two bars at 60 BPM and four at 120 — long enough to
-        /// finish almost any single line, short enough that the carry does not
-        /// outlive the outgoing deck's fader. It is capped by
-        /// `stemExchangeHandoverMax` anyway, and that cap is the binding one on
-        /// a typical 16 s overlap (see `VocalExchange.compensationCeilingDB`:
-        /// past ~64 % of the post-swap stretch the compensation saturates and
-        /// the carried voice starts riding the fader down regardless).
-        var vocalCarryWindowSeconds: TimeInterval = 8
-        /// How far the incoming in-point may be moved off the structural
-        /// choice so that the incoming singer's first line lands on the vocal
-        /// hand-over rather than eight seconds before it.
-        ///
-        /// The compile can only choose *when* to unmute deck B; it cannot
-        /// choose when deck B starts singing. A track entered right on top of a
-        /// verse has its first lines muted no matter how well the exchange is
-        /// picked — which is what the field seams were: an in-point 0.012 s
-        /// into a track that sings from the top, and 17 s of its voice gone.
-        /// So the planner moves the entry back into the song's own pre-vocal
-        /// gap when there is one within this bound. 8 s is about four bars at
-        /// 120 BPM: enough to clear an intro or a pre-verse gap, short enough
-        /// that the incoming track is still entered where structure said.
-        var vocalEntryMaxMoveSeconds: TimeInterval = 8
-        /// Where the incoming singer's first line should land relative to the
-        /// floor swap S, in beats: `S + this`. One beat — a short carry, so the
-        /// exchange happens just after the swap rather than in the middle of
-        /// the incoming track's second phrase.
-        var vocalEntryLeadBeats: Double = 1
-
         // --- Transition score (docs/automix-score-predev.md). P1 ships dark:
         // the knob is **off**, so the planner writes no `TransitionStyle.score`
         // and every decision, curve and rendered sample is field-for-field what
@@ -598,27 +512,6 @@ enum TransitionPlanner {
         /// the listener has time to notice, and four is the player having
         /// stopped. The model refuses anything past a bar outright.
         var scoreTensionCutBeats: Double = TransitionScore.defaultTensionCutBeats
-
-        /// Offer the accompaniment bed on `dropAlign` hand-overs.
-        var scoreBedIntroEnabled: Bool = true
-        /// How many bars of bed, at most. On an aimed hand-over this is a cap
-        /// on the *overlap*, not a length the bed is padded to: the bed runs
-        /// from the instant the incoming deck starts to the instant its singer
-        /// joins, and both of those are already decided. See
-        /// `TransitionScore.defaultBedIntroBars` for why the number is eight
-        /// and the predev's is four.
-        var scoreBedIntroBars: Int = TransitionScore.defaultBedIntroBars
-        /// How sung the incoming track's entry window has to be, relative to
-        /// its own mean, before a bed is worth making.
-        ///
-        /// This is the gesture's whole reason to exist as a *gate*: a bed is
-        /// the incoming track with its vocal lane held down, so on an
-        /// instrumental entry the bed is the mix, the render is identical, and
-        /// a separation pass has been spent on nothing. 0.9 — just under the
-        /// track's own average — is "there is a singer here", which is a much
-        /// weaker claim than `stemVocalActiveRatio`'s and the right one: what
-        /// matters is that muting the lane *changes* something.
-        var scoreBedIntroMinIncomingVocal: Double = 0.9
 
         // --- Intent layer (P3, predev §2.4). See `TransitionIntent`.
         //
@@ -741,8 +634,7 @@ enum TransitionPlanner {
 
         /// Prefer section boundaries — the final chorus's end above all — over
         /// the RMS-jump-scored `phraseBoundaries` when picking an out point.
-        /// Off puts all three out-point searches (beat-matched, crossfade,
-        /// stem) back on the bare boundary list, which is what makes a listening
+        /// Off puts both out-point searches back on the bare boundary list, which is what makes a listening
         /// test able to revert this one behaviour on its own.
         var useStructureOutPoints: Bool = true
         /// Take the in point from the first *core* section — the first one that
@@ -819,33 +711,6 @@ enum TransitionPlanner {
         /// (`Audition.Lyrics.lineEnds`). Empty = no snapping.
         var outgoingLyricLineEnds: [TimeInterval] = []
 
-        /// One track's lyric clock, in **track time**: where each line begins
-        /// and where it stops being sung. Both arrays are ascending and the
-        /// same length (`Audition.Lyrics.lineEnds` is one entry per line).
-        ///
-        /// Nil everywhere means "no `.lrc`", and every decision below is then
-        /// field-for-field what it was before this type existed — which is
-        /// what `plannerIgnoresNilLyricTiming` pins.
-        struct LyricTiming: Sendable, Equatable {
-            var lineStarts: [TimeInterval]
-            var lineEnds: [TimeInterval]
-
-            init(lineStarts: [TimeInterval], lineEnds: [TimeInterval]) {
-                self.lineStarts = lineStarts
-                self.lineEnds = lineEnds
-            }
-        }
-
-        /// The outgoing track's clock. Carried for symmetry with the incoming
-        /// one (and because the out-point snap is the same data said twice);
-        /// nothing reads it today — `outgoingLyricLineEnds` above is still the
-        /// snap grid.
-        var outgoingLyricTiming: LyricTiming?
-        /// The **incoming** track's clock. This is the one the vocal-exchange
-        /// aim reads: where deck B starts singing decides whether entering it
-        /// at the structural in-point throws its first lines away.
-        var incomingLyricTiming: LyricTiming?
-
         /// The two tracks are on the same album (a real album, not the empty
         /// `AlbumRef` a search result carries).
         ///
@@ -894,23 +759,17 @@ enum TransitionPlanner {
     static let vocalClashRatio = Config.standard.vocalClashRatio
     static let vocalClashFadeCap = Config.standard.vocalClashFadeCap
 
-    /// - Parameter stems: whether a vocal/accompaniment separator is available
-    ///   for this hand-over. At `.none` — the default, and what every product
-    ///   path passes — the result is field-for-field what it was before the
-    ///   stem layer existed; `.ready` lets the two rules in "Stem layer" below
-    ///   re-aim the out point and add a `StemTechnique`.
     /// - Parameter context: facts about this particular hand-over that no
     ///   `TrackAnalysis` carries — today, the outgoing track's lyric line ends.
     ///   `.none` (the default) decides exactly what the planner decided before
     ///   the structure layer existed.
     static func plan(
         outgoing: TrackAnalysis?, incoming: TrackAnalysis?,
-        stems: StemAvailability = .none,
         config: Config = .standard,
         context: PlanContext = .none
     ) -> PlannedTransition {
         var untraced: PlanTrace?
-        return plan(outgoing: outgoing, incoming: incoming, stems: stems,
+        return plan(outgoing: outgoing, incoming: incoming,
                     config: config, context: context, trace: &untraced)
     }
 
@@ -926,7 +785,6 @@ enum TransitionPlanner {
     /// back by the planner.
     static func plan(
         outgoing: TrackAnalysis?, incoming: TrackAnalysis?,
-        stems: StemAvailability = .none,
         config: Config = .standard,
         context: PlanContext = .none,
         trace: inout PlanTrace?
@@ -981,7 +839,7 @@ enum TransitionPlanner {
 
         // --- Candidate generation (predev §2.3). Computed once and handed to
         // all three out-point searches and to both plan shapes, so beat-matched,
-        // crossfade and stem hand-overs can never disagree about where this
+        // crossfade hand-overs can never disagree about where this
         // pair's structure says the seams are.
         let candidates = outPointCandidates(outgoing, context: context, config: config)
         let inChoice = inPointChoice(incoming, config: config)
@@ -1039,8 +897,7 @@ enum TransitionPlanner {
         // point. Not the final seam (that is what the beat-match search is
         // about to decide), but the same part of each song to within a bar or
         // two, and a whole-track statistic would answer a different question
-        // entirely. Held in locals because the stem request below is the *same*
-        // finding as the reason sentence, read off the same two profiles.
+        // entirely.
         let outgoingEdge: MaterialProfile? = config.intentEnabled
             ? .outgoing(outgoing,
                         exitAt: candidates.points.first
@@ -1055,67 +912,16 @@ enum TransitionPlanner {
             return TransitionIntent.classify(
                 outgoing: outgoing, incoming: incoming,
                 outgoingEdge: outgoingEdge, incomingEdge: incomingEdge,
-                context: context, stems: stems, config: config)
+                context: context, config: config)
         }()
         if let intent {
             _ = note(&trace, .intent, "intentClass", intent.class != .standDown,
                      intent.budget, nil, intent.label)
         }
-        // --- The intent-driven stem request (the P3→S1 seam).
-        //
-        // The intent layer's rule 6 can find that both edges are sung and say
-        // so; until now nothing acted on it, because the stem layer qualified
-        // an out point on `stemVocalActiveRatio` (1.15) — "is this window a
-        // vocal hot spot", an S1 question — and an ordinary sung edge sits at
-        // 1.0–1.1 and never clears it. So the one case `.vocalExchange` was
-        // built for, two vocal-active windows with a hand-over to orchestrate
-        // between them, was the case it could not be reached from.
-        //
-        // When the finding fires on a `blend` and a separator is ready, the
-        // planner therefore *requests* the exchange, and the request carries
-        // the intent layer's own definition of "sung"
-        // (`intentInstrumentalEdgeRatio`) down to the stem search in place of
-        // the hot-spot pair. Not a second definition of singing: the same
-        // number rule 5 already refuses to cut above.
-        //
-        // Everything else the stem layer insists on is untouched —
-        // `stemMinOverlap`, the tail-window/out-point geometry, the stability
-        // bars on the 8/16-bar upgrades — and the request still has to *find* a
-        // qualifying out point in the real overlap window; it is a relaxed
-        // threshold, not a bypass of the search. Downstream, `.vocalExchange`
-        // remains a marker that `Audition.decide` compiles against the outgoing
-        // lyrics and degrades, visibly, to `.vocalDuck` when there is nothing to
-        // hand over on.
-        //
-        // Restricted to `.blend` on purpose. `cutCulture` cannot produce the
-        // finding (it requires instrumental edges), `restrained` and
-        // `standDown` are the two classes that exist to spend *less* gesture,
-        // and `dropAlign` is aiming at a drop rather than managing two voices.
-        let intentVocalRequest: Double? = {
-            guard let intent, intent.class == .blend, stems == .ready,
-                  let outgoingEdge, let incomingEdge,
-                  TransitionIntent.bothEdgesSung(outgoingEdge, incomingEdge,
-                                                 config: config) != nil
-            else { return nil }
-            return config.intentInstrumentalEdgeRatio
-        }()
-        if config.intentEnabled {
-            _ = note(&trace, .intent, "intentStemRequest", intentVocalRequest != nil,
-                     intentVocalRequest, config.stemVocalActiveRatio,
-                     intentVocalRequest != nil
-                         ? String(format: "both edges sung on a blend and a separator is ready — "
-                                  + "vocalExchange requested at the intent layer's own %.2f "
-                                  + "line instead of the %.2f hot-spot gate",
-                                  config.intentInstrumentalEdgeRatio,
-                                  config.stemVocalActiveRatio)
-                         : (stems == .ready
-                            ? "no vocal-managed blend to request an exchange for"
-                            : "no separator available, so the stem layer is not asked"))
-        }
         // `standDown` **is** the plain path, not a shorter version of the
         // AutoMix one: `.plain(.gapless)` is precisely what this function
         // returns for a pair with no analysis and for a track under the
-        // duration floor, and it is what the iOS build and the AutoMix-off
+        // duration floor, and it is what the AutoMix-off
         // player do for every seam. Tail to head, no overlap, no ride, no
         // style — the most conservative path that already exists, reused rather
         // than re-invented.
@@ -1130,12 +936,10 @@ enum TransitionPlanner {
         // beat-match and caps the window at the neutral overlap.
         let restrained = intent?.class == .restrained
 
-        var matched: (plan: BeatMatchedPlan, stem: StemTechnique?, vocalEntry: String?)?
+        var matched: BeatMatchedPlan?
         if tier == .compatible, !restrained {
             matched = beatMatchedPlan(outgoing: outgoing, incoming: incoming,
                                       candidates: candidates.points, inAnchor: inChoice.point,
-                                      stems: stems, intentVocalRequest: intentVocalRequest,
-                                      incomingLyrics: context.incomingLyricTiming,
                                       config: config, trace: &trace)
         } else if trace != nil {
             // The tier already ended this pair's beat-match hopes, so the rest
@@ -1147,8 +951,6 @@ enum TransitionPlanner {
             var shadow: PlanTrace? = PlanTrace()
             _ = beatMatchedPlan(outgoing: outgoing, incoming: incoming,
                                 candidates: candidates.points, inAnchor: inChoice.point,
-                                stems: stems, intentVocalRequest: intentVocalRequest,
-                                incomingLyrics: context.incomingLyricTiming,
                                 config: config, trace: &shadow)
             trace?.shadowGates = shadow?.gates ?? []
         }
@@ -1173,13 +975,8 @@ enum TransitionPlanner {
             return transition
         }
         if let matched {
-            trace?.chosenBars = matched.plan.overlapBars
-            // The full DJ hand-over: staged three-band EQ across the overlap.
-            // A stem technique layers *under* that — it rewrites what the
-            // outgoing deck is fed, and the fader / EQ / outro automation then
-            // runs over it unchanged (see `StemTechniqueLayer`).
+            trace?.chosenBars = matched.overlapBars
             var style = TransitionStyle(outroEffect: .fade, stagedEQ: true)
-            style.stemTechnique = matched.stem
             // The one place the dominant-deck law is asked for: a staged
             // hand-over long enough to have a middle to collapse in. A staged
             // *crossfade* keeps the symmetric curves — it has no beat grid, so
@@ -1187,16 +984,7 @@ enum TransitionPlanner {
             // deck up to it would be holding it up to nothing in particular.
             style.dominantDeck = config.dominantDeckBlend
             style.preSwapPlateau = Float(config.preSwapPlateau)
-            // The vocal-entry aim is an intent-layer decision — it only runs
-            // under `intentVocalRequest`, which is rule 6 firing — so it is
-            // reported where that layer already reports: the `intent=blend (…)`
-            // string the journal's `plan armed` line prints. Without this the
-            // moved in-point and the shortened overlap are visible only as two
-            // numbers nobody can explain.
-            style.intent = matched.vocalEntry.flatMap { detail in
-                intent.map { TransitionIntent($0.class, reasons: $0.reasons + [detail],
-                                              budget: $0.budget) }
-            } ?? intent
+            style.intent = intent
             // …and a score layers over *that*, as an alternative the segment
             // path may perform. Chosen at the end of this block, once the aim
             // is settled, because two of the four gestures depend on it. Off by
@@ -1225,18 +1013,7 @@ enum TransitionPlanner {
             // (predev §2.3). Same aiming machinery, same gates re-run, two
             // landings.
             //
-            // **The order changed in P4, and only the order.** P1 chose the
-            // score first and let its existence pick the landing; P4 has four
-            // gestures to choose between and two of them — the tension cut and
-            // the bed — cannot be chosen without knowing what the hand-over
-            // aims at and where the incoming deck ends up entering. So the
-            // *family* is settled first (which is what P1's `score()` really
-            // decided: gates and intent class, neither of which needs a plan),
-            // the aim runs on that, and the template is picked last, against
-            // the aimed geometry. With `scoreEnabled` down the family is nil
-            // and every line below is a nil check, so this reshuffle is
-            // invisible to every shipped decision.
-            var plan = matched.plan
+            var plan = matched
             let family = scoreFamily(outgoing: outgoing, incoming: incoming,
                                      intent: intent, config: config)
             let landing: TransitionAim.Landing? = family == .cutCulture
@@ -1259,10 +1036,8 @@ enum TransitionPlanner {
                 let selection = ScoreTemplate.select(
                     family: family,
                     material: ScoreTemplate.Material(
-                        outgoing: outgoing, incoming: incoming, plan: plan, aim: style.aim,
-                        hasLyrics: !context.outgoingLyricLineEnds.isEmpty,
-                        stemsReady: stems == .ready,
-                        hasStemTechnique: matched.stem != nil),
+                        aim: style.aim,
+                        hasLyrics: !context.outgoingLyricLineEnds.isEmpty),
                     config: config)
                 style.score = selection?.score
                 _ = note(&trace, .structure, "scoreTemplate", selection != nil,
@@ -1286,21 +1061,15 @@ enum TransitionPlanner {
         if restrained { cap = Swift.min(cap, config.neutralOverlapCap) }
         let crossfade = crossfadePlan(outgoing: outgoing, incoming: incoming,
                                       candidates: candidates.points, inPoint: inChoice.point,
-                                      tierCap: cap, tier: tier, stems: stems,
-                                      intentVocalRequest: intentVocalRequest, config: config)
-        // Same composition rule as above: the stem technique never replaces
-        // the outro effect or the staged-EQ decision, it sits beneath them.
-        // So a ducked vocal under a filter sweep is a swept exit whose vocal
-        // is 9 dB down, not a different exit.
+                                      tierCap: cap, config: config)
         var style = crossfadeStyle(tier: tier, outgoing: outgoing,
-                                   plan: crossfade.plan, config: config)
-        style.stemTechnique = crossfade.stem
+                                   plan: crossfade, config: config)
         style.intent = intent
         // The ride only makes sense over an overlap — it *is* the seconds the
         // two decks share, held at a corrected level. A `.gapless` seam has no
-        // such window (and `.plain(.gapless)`, the AutoMix-off / iOS path, must
+        // such window (and `.plain(.gapless)`, the AutoMix-off path, must
         // stay bit-identical), so every early return above keeps ride 0.
-        return finish(PlannedTransition(plan: crossfade.plan, style: style, rideDB: s.rideDB))
+        return finish(PlannedTransition(plan: crossfade, style: style, rideDB: s.rideDB))
     }
 
     // MARK: - Transition score
@@ -1311,8 +1080,7 @@ enum TransitionPlanner {
     /// of two analyses: it can see that both grids are quantized and confident,
     /// which is the cultural precondition for cutting rather than blending, but
     /// it cannot see where bar 0 beat 0 lands in seconds. So it emits the score
-    /// as a marker and `ScoreCompiler` places it — the same division of labour
-    /// `.vocalExchange` has, one level up.
+    /// as a marker and `ScoreCompiler` places it.
     ///
     /// P1 kept the selection rule deliberately thin: gates only, no material
     /// semantics. P3 adds the semantics as a **veto, never a licence** — the
@@ -1325,15 +1093,6 @@ enum TransitionPlanner {
     /// reaches here at all — it returned gapless at the front door), and
     /// neither does `blend`.
     ///
-    /// **P4 gave `dropAlign` one gesture**, and it is worth being precise about
-    /// why that is not a loosening of the rule above. `cutCulture` is still the
-    /// only class that may *cut*. What `dropAlign` may now have is a score that
-    /// does not cut at all: `bedIntro` writes one muted stem lane over the
-    /// blend the class was already getting, leaves the fader law, the staged EQ
-    /// and the aimed overlap end exactly where they were, and cannot make the
-    /// hand-over more abrupt than it already was. The family a pair belongs to
-    /// decides which ladder of gestures it is shown, and the two ladders do not
-    /// overlap by a single event.
     static func scoreFamily(outgoing: TrackAnalysis, incoming: TrackAnalysis,
                             intent: TransitionIntent? = nil,
                             config: Config) -> ScoreTemplate.Family? {
@@ -1349,7 +1108,6 @@ enum TransitionPlanner {
         guard config.intentEnabled else { return .cutCulture }
         switch intent?.class {
         case .cutCulture: return .cutCulture
-        case .dropAlign: return .dropAlign
         default: return nil
         }
     }
@@ -1450,7 +1208,7 @@ enum TransitionPlanner {
         // to nothing.
         let geometry = TransitionAutomation.Geometry(plan: .beatMatched(p))
         let glide = TransitionAutomation.incomingGlide(for: .beatMatched(p), geometry: geometry)
-        let clock = StemTechniqueLayer.SourceClock(
+        let clock = TransitionSourceClock(
             rate: Double(max(0.5, min(2, p.incomingRate))), glide: glide)
         // Which instant of the *hand-over* the target is being made to land on:
         // the swap point for a cut (the seam), the end of the overlap for a
@@ -1515,138 +1273,6 @@ enum TransitionPlanner {
                                 value: value(), threshold: threshold(), detail: detail()))
         }
         return passed
-    }
-
-    // MARK: - Stem layer
-    //
-    // Two rules, checked in this order, and only ever when the caller says a
-    // separator is available. Both start from the same observation: a stem
-    // technique acts on the *outgoing vocal*, so it is worth nothing in a
-    // window that has none — and the corpus says the planner's own out points
-    // are exactly such windows. Fourteen of sixteen tracks have an
-    // `outroFadeStart`, which pins the crossfade out point to the fade itself:
-    // the track is on its way to silence there, and a separation of that
-    // window comes back near-empty (measured vocal-over-mixture energy ≈ 0.005
-    // against ~0.33 mid-song). So both rules re-aim the out point at a
-    // vocal-carrying phrase boundary *before* the outro, and decline to name a
-    // technique when no such boundary exists.
-    //
-    //   1. vocalExchange — the outgoing window is vocal-active and so is the
-    //      incoming opening. Without stems this is the one blend a DJ never
-    //      allows, and the planner punishes it: the crossfade is cut to
-    //      `vocalClashFadeCap`, and the 8/16-bar beat-matched upgrades are
-    //      refused. With stems the punishment becomes a technique. S1 answered
-    //      it with a flat duck (`stemDuckDepthDB` for the whole window), which
-    //      its blind test liked best of the three gestures — but a duck only
-    //      *survives* two vocals, it does not resolve them: over a 12–16 s
-    //      overlap it still sounds like two players running at once. So the
-    //      planner now asks for the orchestrated hand-off instead, and the
-    //      duck is what that degrades to when the outgoing track has no
-    //      lyrics to hand over on (see `Audition.VocalExchange`).
-    //   2. acapellaOver — the outgoing window is vocal-active and the incoming
-    //      opening is instrumental-leaning, at `tier == .compatible` only.
-    //      S1: this is the structure the technique was built for, and the one
-    //      technique whose separation residue is genuinely exposed, so it stays
-    //      on the tier that already licenses a full blend.
-    //
-    // `instrumentalOut` is deliberately never chosen automatically: it never
-    // won a pair in S1's blind test. It remains reachable by hand (`--stem
-    // instrumental`, or the console's picker) so it can keep being auditioned.
-    //
-    // The two rules cannot both apply: `stemAcapellaIncomingVocalMax` (0.90)
-    // sits below `vocalClashRatio` (1.10), so an incoming opening is either
-    // hot enough to duck against or quiet enough to float over, never both.
-
-    /// What the stem search settled on: where to hand over, and with which
-    /// technique.
-    private struct StemChoice {
-        let outPoint: TimeInterval
-        let technique: StemTechnique
-    }
-
-    /// Pick a vocal-carrying out point out of `candidates` (tail-window phrase
-    /// boundaries that fit `overlap`, best-scored first) and name the technique
-    /// its structure implies; nil when nothing here is worth a separation pass.
-    /// - Parameter intentVocalRequest: non-nil when the intent layer found both
-    ///   edges sung on a `blend` and a separator is ready — the value is the
-    ///   layer's own "sung" line (`intentInstrumentalEdgeRatio`), which stands
-    ///   in for the two hot-spot thresholds on this path only. Nil (every
-    ///   `intentEnabled == false` call, and every other class) leaves the rules
-    ///   exactly as they were.
-    private static func stemChoice(
-        outgoing: TrackAnalysis, incoming: TrackAnalysis,
-        candidates: [TimeInterval], inPoint: TimeInterval, overlap: TimeInterval,
-        tier: CompatibilityTier, intentVocalRequest: Double? = nil, config: Config
-    ) -> StemChoice? {
-        guard overlap >= config.stemMinOverlap else { return nil }
-
-        // --- The intent request, checked first and only ever *additive*: if it
-        // does not produce an exchange it falls through to the rules below,
-        // unchanged, rather than handing the relaxed line to `acapellaOver`.
-        // The request is for one technique, so it may only ever grant that one.
-        //
-        // Both lines move together, and both have to. 1.15 and 1.10 are S1
-        // hot-spot numbers — "is this window noticeably more sung than the song
-        // is on average" — and the question this path asks is the simpler one
-        // the exchange was actually built around: is anyone singing on either
-        // side of the seam. The field's confirmed case measured 1.06/1.04 and
-        // cleared neither number, which is precisely why it arrived as
-        // `stem=none` under a reason sentence promising vocal management.
-        //
-        // Measured on the real seam windows, not inherited from the intent
-        // layer's edge windows: the finding licenses the request, the geometry
-        // still has to be there where the hand-over will actually happen.
-        if let line = intentVocalRequest,
-           let outPoint = candidates.first(where: {
-               (vocalScore(outgoing, from: $0, length: overlap) ?? 0) >= line
-           }),
-           let incomingScore = vocalScore(incoming, from: inPoint, length: overlap),
-           incomingScore > line {
-            return StemChoice(outPoint: outPoint, technique: .vocalExchange)
-        }
-
-        // Best-scored boundary that actually carries the outgoing vocal — the
-        // exact opposite of the whole-mix rule below, which prefers a window
-        // where the vocals have already finished.
-        guard let outPoint = candidates.first(where: {
-            (vocalScore(outgoing, from: $0, length: overlap) ?? 0) >= config.stemVocalActiveRatio
-        }) else { return nil }
-
-        // A missing incoming contour means an instrumental (or a vocal too
-        // weak to measure): not something to duck against, and fine to float
-        // over — same reading `vocalsClash` gives it.
-        let incomingScore = vocalScore(incoming, from: inPoint, length: overlap)
-        if let incomingScore, incomingScore > config.vocalClashRatio {
-            // Both sides are singing across a long overlap — the case a flat
-            // duck only *survives* and an orchestrated hand-off actually
-            // solves. The planner names the template; `Audition.decide`
-            // compiles it against the outgoing track's lyrics, and degrades to
-            // the duck (visibly) when there is no phrase to hand over on.
-            return StemChoice(outPoint: outPoint, technique: .vocalExchange)
-        }
-        if tier == .compatible,
-           (incomingScore ?? 0) <= config.stemAcapellaIncomingVocalMax {
-            return StemChoice(outPoint: outPoint, technique: .acapellaOver)
-        }
-        return nil
-    }
-
-    /// Out-point candidates in the outgoing tail that can hold `overlap` and sit
-    /// *before* any outro fade — the stem search's candidate list.
-    ///
-    /// This is the beat-matched out-point window rather than the crossfade's
-    /// `crossfadeOutPointShare` one, on purpose: the crossfade window happily
-    /// includes the outro fade, and handing over inside a fade is precisely
-    /// what leaves a stem technique with nothing to work on.
-    private static func stemCandidates(
-        _ a: TrackAnalysis, candidates: [TimeInterval], overlap: TimeInterval, config: Config
-    ) -> [TimeInterval] {
-        let outLimit = a.outroFadeStart ?? a.duration
-        let windowStart = max(a.duration * config.tailWindowShare,
-                              outLimit - config.tailWindowSeconds)
-        return candidates.filter {
-            $0 >= windowStart && $0 <= outLimit && $0 + overlap <= a.duration
-        }
     }
 
     /// Which technique sends the outgoing track off, per tier: clashing
@@ -1964,7 +1590,7 @@ enum TransitionPlanner {
     //
     // Everything below produces *candidates*. Not one line of it decides
     // anything: the tier gate, the five signals, the bar-upgrade search and the
-    // stem rules run afterwards, unchanged, over whatever this hands them. That
+    // gates run afterwards over whatever this hands them. That
     // is the whole safety argument for the layer — a mislabelled chorus can move
     // a hand-over, it can never authorize one that the gates refuse.
     //
@@ -2355,104 +1981,6 @@ enum TransitionPlanner {
                            core.kind.rawValue, core.start, a.introEnd))
     }
 
-    // MARK: - Making room for the vocal exchange
-
-    /// Where deck B should be entered — and how long the overlap should be — so
-    /// that the incoming singer's first line lands *on* the hand-over instead
-    /// of under a mute.
-    ///
-    /// The compile (`Audition.VocalExchange`) reads both lyric clocks and picks
-    /// the instant; it cannot pick the material. If the planner enters an
-    /// incoming track on top of a verse, deck B's first lines are inside the
-    /// overlap and before the hand-over, and the only thing the compile can do
-    /// with them is hold them at −40 dB. That is the field complaint — an
-    /// in-point 0.012 s into a track that sings from the top, hand-over at
-    /// 16.9 s of a 28.9 s overlap, seventeen seconds of the new singer gone.
-    ///
-    /// So when the pair is a sung/sung blend that asked for a `.vocalExchange`
-    /// and the incoming track's lyric clock is known, the entry moves back into
-    /// the incoming song's own **pre-vocal gap** (its intro, or the space
-    /// before a verse — the largest gap near the structural choice), far enough
-    /// back that the first line arrives about `vocalEntryLeadBeats` past the
-    /// floor swap, and the overlap ladder prefers 8 and 4 bars over 16: a short
-    /// window is what keeps that arithmetic inside the gap the song actually
-    /// has.
-    ///
-    /// Nil — no timing, no gap, or nothing to gain — leaves the plan exactly as
-    /// it was.
-    static func vocalEntryAim(
-        incoming: TrackAnalysis, timing: PlanContext.LyricTiming,
-        structuralInPoint: TimeInterval, beat: TimeInterval, rate: Double,
-        config: Config
-    ) -> (inPoint: TimeInterval, ladder: [Int], detail: String)? {
-        let starts = timing.lineStarts.sorted()
-        let ends = timing.lineEnds.sorted()
-        let move = config.vocalEntryMaxMoveSeconds
-        guard !starts.isEmpty, beat > 0, rate > 0, move > 0 else { return nil }
-
-        // The ladder this rule works in: shorter overlaps, because the entry
-        // has to fit inside a gap the incoming song actually has, and a 16-bar
-        // window would need one no pop track offers.
-        let ladder = [8, 4]
-
-        // Does deck B sing from where the planner would enter it? If its first
-        // line is already most of an overlap away, entering there costs the
-        // listener nothing and this rule has no business moving anything.
-        guard let firstLine = starts.first(where: { $0 >= structuralInPoint - 0.05 }),
-              (firstLine - structuralInPoint) / rate
-                  < Double(ladder[0]) * 4 * beat / 2
-        else { return nil }
-
-        // The gaps this song offers: from the previous line's end to the next
-        // line's start, plus the intro (from 0 to the first line). Only gaps
-        // near the structural in-point are candidates — a gap a minute away is
-        // not this hand-over's entry, whatever its length.
-        var gaps: [(start: TimeInterval, entry: TimeInterval)] = []
-        for (index, line) in starts.enumerated() {
-            let from = index == 0 ? 0 : (index - 1 < ends.count ? ends[index - 1] : line)
-            if line > from { gaps.append((from, line)) }
-        }
-        let near = gaps.filter {
-            $0.entry >= structuralInPoint - move && $0.start <= structuralInPoint + move
-        }
-        guard let gap = near.max(by: { ($0.entry - $0.start) < ($1.entry - $1.start) })
-        else { return nil }
-        let floor = Swift.max(0, gap.start, structuralInPoint - move)
-
-        for bars in ladder {
-            let overlap = Double(bars) * 4 * beat
-            // Aim: the first line lands `vocalEntryLeadBeats` past the floor
-            // swap, which a beat-matched plan puts at half the overlap.
-            let lead = rate * (overlap / 2 + config.vocalEntryLeadBeats * beat)
-            let target = gap.entry - lead
-            guard target >= floor - 0.05 else { continue }
-            // Only ever *earlier*: entering later would throw away more of the
-            // incoming track's opening, which is the thing being rescued. And
-            // if the aim does not actually move the entry, today's plan already
-            // lands the line where this rule wants it.
-            guard target < structuralInPoint - 0.05 else { return nil }
-            // Land on a downbeat *at or before* the target, and hand that
-            // downbeat over as the anchor: the search's own snap walks
-            // **forward** to the first downbeat past its anchor, so aiming at
-            // the raw target would give back up to a bar of the lead and drop
-            // the incoming line in front of the floor swap. The bar grid is the
-            // granularity this rule has; picking the downbeat here is what
-            // keeps the line on the late side of the swap.
-            guard let entry = incoming.downbeats.last(where: {
-                $0 <= Swift.min(target, structuralInPoint) + 0.05 && $0 >= floor - 0.05
-            }) else { continue }
-            let landing = (gap.entry - entry) / rate
-            return (entry, bars == 4 ? [4] : [bars, 4], String(
-                format: "vocal entry: incoming sings from %.2f s (pre-vocal gap "
-                    + "%.2f–%.2f s), so the in point moves %.2f s earlier to %.2f s "
-                    + "and the overlap takes at most %d bars — its first line then lands "
-                    + "%.2f s into the overlap, %.2f s past the floor swap",
-                gap.entry, gap.start, gap.entry, structuralInPoint - entry, entry, bars,
-                landing, landing - overlap / 2))
-        }
-        return nil
-    }
-
     // MARK: - Rule 1: beat-matched
 
     /// - Parameters:
@@ -2464,10 +1992,9 @@ enum TransitionPlanner {
     private static func beatMatchedPlan(
         outgoing: TrackAnalysis, incoming: TrackAnalysis,
         candidates: [TimeInterval], inAnchor: TimeInterval,
-        stems: StemAvailability, intentVocalRequest: Double? = nil,
-        incomingLyrics: PlanContext.LyricTiming? = nil, config: Config,
+        config: Config,
         trace: inout PlanTrace?
-    ) -> (plan: BeatMatchedPlan, stem: StemTechnique?, vocalEntry: String?)? {
+    ) -> BeatMatchedPlan? {
         guard note(&trace, .beatMatch, "bpmConfidence",
                    outgoing.bpmConfidence >= config.bpmConfidenceThreshold
                        && incoming.bpmConfidence >= config.bpmConfidenceThreshold
@@ -2538,31 +2065,10 @@ enum TransitionPlanner {
                           rateCap * 100, regime))
         else { return nil }
 
-        // Making room for the vocal exchange, before the snap rather than
-        // after it: when this pair is a sung/sung blend that asked for one and
-        // the incoming track's lyric clock is known, the entry may move back
-        // into deck B's own pre-vocal gap so its first line lands on the
-        // hand-over. `nil` lyrics — every path that does not read a `.lrc` —
-        // leaves `anchor` and both ladders exactly as they were.
-        var anchor = inAnchor
-        var barLadder = [16, 8]
-        var stemLadder = [16, 8, 4]
-        var vocalEntry: String?
-        if let incomingLyrics, intentVocalRequest != nil,
-           let aim = vocalEntryAim(incoming: incoming, timing: incomingLyrics,
-                                   structuralInPoint: inAnchor,
-                                   beat: 60.0 / targetBPM, rate: incomingRate,
-                                   config: config) {
-            anchor = aim.inPoint
-            barLadder = aim.ladder
-            stemLadder = aim.ladder
-            vocalEntry = aim.detail
-        }
-
         // In point: the downbeat aligned with the incoming track's entry — the
         // first core section's start when structure named one, `introEnd`
         // otherwise. The snap itself is unchanged either way.
-        guard let inPoint = incoming.downbeats.first(where: { $0 >= anchor - 0.05 })
+        guard let inPoint = incoming.downbeats.first(where: { $0 >= inAnchor - 0.05 })
                 ?? incoming.downbeats.first
         else {
             _ = note(&trace, .beatMatch, "inPoint", false, nil, nil,
@@ -2572,8 +2078,7 @@ enum TransitionPlanner {
         }
         _ = note(&trace, .beatMatch, "inPoint", true, inPoint, nil,
                  String(format: "first downbeat past the %.2f s entry sits at %.2f s",
-                        anchor, inPoint)
-                     + (vocalEntry.map { " (\($0))" } ?? ""))
+                        inAnchor, inPoint))
 
         let beatDuration = 60.0 / targetBPM
         func overlapDuration(bars: Int) -> TimeInterval { Double(bars) * 4 * beatDuration }
@@ -2598,7 +2103,7 @@ enum TransitionPlanner {
         // bars when both regions hold steady, 4 bars as the floor.
         var bars = 4
         var chosenOutPoint: TimeInterval?
-        for candidate in barLadder {
+        for candidate in [16, 8] {
             let overlap = overlapDuration(bars: candidate)
             guard note(&trace, .barUpgrade, "bars\(candidate).ceiling",
                        overlap <= overlapCeiling, overlap, overlapCeiling,
@@ -2713,38 +2218,7 @@ enum TransitionPlanner {
                 rampGlideBackFromSwap: config.tempoRampEnabled
                     && config.rampGlideBackFromSwap)
         }
-        let plain = made(bars: bars, outPoint: outPoint)
-        guard stems == .ready else { return (plain, nil, vocalEntry) }
-
-        // Stem variant: the same longest-first bar search, but the vocal gate
-        // that blocked the 8/16-bar upgrades above is replaced by "a stem
-        // technique must apply here". So a pair the whole-mix planner cut back
-        // to four bars for a vocal clash gets its long overlap back — with the
-        // clash ducked rather than avoided. Everything the search still
-        // insists on (the ceiling, both sides' steadiness, room on the
-        // incoming deck) is unchanged: a technique cannot make a lurching
-        // window sit still.
-        for candidate in stemLadder {
-            let overlap = overlapDuration(bars: candidate)
-            guard overlap <= overlapCeiling, inPoint + overlap <= incoming.duration,
-                  let choice = stemChoice(
-                    outgoing: outgoing, incoming: incoming,
-                    candidates: stemCandidates(outgoing, candidates: candidates,
-                                               overlap: overlap, config: config),
-                    inPoint: inPoint, overlap: overlap, tier: .compatible,
-                    intentVocalRequest: intentVocalRequest, config: config)
-            else { continue }
-            if candidate > 4 {
-                guard isStable(outgoing, outgoing.rmsEnvelope, from: choice.outPoint,
-                               length: overlap, cv: config.stableCV, config: config),
-                      isStable(incoming, incoming.rmsEnvelope, from: inPoint,
-                               length: overlap, cv: config.stableCV, config: config)
-                else { continue }
-            }
-            return (made(bars: candidate, outPoint: choice.outPoint), choice.technique,
-                    vocalEntry)
-        }
-        return (plain, nil, vocalEntry)
+        return made(bars: bars, outPoint: outPoint)
     }
 
     /// The steadiness bar that applies to one window of one track: the looser
@@ -2879,9 +2353,8 @@ enum TransitionPlanner {
     private static func crossfadePlan(
         outgoing: TrackAnalysis, incoming: TrackAnalysis,
         candidates: [TimeInterval], inPoint: TimeInterval,
-        tierCap: TimeInterval, tier: CompatibilityTier,
-        stems: StemAvailability, intentVocalRequest: Double? = nil, config: Config
-    ) -> (plan: TransitionPlan, stem: StemTechnique?) {
+        tierCap: TimeInterval, config: Config
+    ) -> TransitionPlan {
         // `inPoint` is the structure layer's answer (`inPointChoice`), which is
         // `introEnd` whenever there is no structure to read — and it is the same
         // value `intakeCapacity` measures the incoming climb from below, so the
@@ -2913,21 +2386,6 @@ enum TransitionPlanner {
                 (vocalScore(outgoing, from: $0, length: fade) ?? 0) <= config.vocalClashRatio
             } ?? inWindow.first ?? max(0, outgoing.duration - fade)
         }
-        // Stem layer, before the vocal cap: a technique that can hold the
-        // outgoing vocal down does not need the overlap shortened, and it
-        // needs a *vocal-carrying* out point rather than the outro fade this
-        // search would otherwise settle on.
-        if stems == .ready,
-           let choice = stemChoice(
-            outgoing: outgoing, incoming: incoming,
-            candidates: stemCandidates(outgoing, candidates: candidates,
-                                       overlap: fade, config: config),
-            inPoint: inPoint, overlap: fade, tier: tier,
-            intentVocalRequest: intentVocalRequest, config: config) {
-            return (.crossfade(duration: fade, outPoint: choice.outPoint, inPoint: inPoint),
-                    choice.technique)
-        }
-
         // Two lead vocals over each other is the one unforgivable blend —
         // when no vocal-free window exists, keep the overlap brief instead.
         if vocalsClash(outgoing: outgoing, outPoint: outPoint,
@@ -2935,7 +2393,6 @@ enum TransitionPlanner {
                        config: config) {
             fade = min(fade, config.vocalClashFadeCap)
         }
-        return (.crossfade(duration: fade, outPoint: outPoint, inPoint: inPoint), nil)
+        return .crossfade(duration: fade, outPoint: outPoint, inPoint: inPoint)
     }
 }
-#endif

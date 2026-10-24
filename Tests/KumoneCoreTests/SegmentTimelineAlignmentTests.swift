@@ -104,14 +104,6 @@ private enum ClickTrainAudio {
     }
 }
 
-/// A separator that hears no vocal, so a duck lands on a silent lane and the
-/// render is bit-for-bit the plain transition. The technique is only there
-/// because `TransitionSegmentRenderer` refuses to pre-render a hand-over that
-/// asks for nothing; it must not change a sample of the audio being measured.
-private let noVocals: VocalStemProvider = { request in
-    VocalStem(channels: request.samples.map { [Float](repeating: 0, count: $0.count) })
-}
-
 // MARK: - Peak picking
 
 /// Rendered times of the click bursts in one channel.
@@ -174,16 +166,17 @@ private func gridError(_ source: TimeInterval, spacing: TimeInterval) -> TimeInt
             bassSwapOffset: 2, overlapDuration: 6,
             rampLeadSeconds: 12, rampReleaseSeconds: 2)
         return PlannedTransition(plan: .beatMatched(matched),
-                                 style: TransitionStyle(outroEffect: .fade, stagedEQ: false,
-                                                        stemTechnique: .vocalDuck(depthDB: -9)))
+                                 style: TransitionStyle(outroEffect: .fade, stagedEQ: false))
     }
 
-    private func segment(outgoing: URL, incoming: URL) throws -> TransitionSegment {
-        var request = TransitionSegmentRenderer.Request(
-            planned: planned, outgoingURL: outgoing, incomingURL: incoming)
-        request.outgoingTrimDB = 0
-        request.incomingTrimDB = 0
-        return try TransitionSegmentRenderer.render(request, provider: noVocals)
+    private func segment(outgoing: URL, incoming: URL) throws -> OfflineTransitionRenderer.Mix {
+        var options = OfflineTransitionRenderer.Options()
+        options.preRoll = TransitionAutomation.segmentHandoff
+        options.postRoll = TransitionAutomation.segmentHandoff
+        // Match the live splice's flat-rate head window while testing ordinary audio.
+        options.extendPreRollForTempoRamp = false
+        return try OfflineTransitionRenderer.renderMix(
+            planned, outgoing: outgoing, incoming: incoming, options: options)
     }
 
     /// The whole defect, stated as an assertion: every burst in the rendered
@@ -209,9 +202,16 @@ private func gridError(_ source: TimeInterval, spacing: TimeInterval) -> TimeInt
         #expect(outgoingOnly.incoming == incomingOnly.incoming)
         #expect(outgoingOnly.outgoing == incomingOnly.outgoing)
 
+        func outgoingSource(at offset: TimeInterval) -> TimeInterval {
+            OfflineTransitionRenderer.Mix.source(of: outgoingOnly.outgoing, at: offset)
+        }
+        func incomingSource(at offset: TimeInterval) -> TimeInterval {
+            OfflineTransitionRenderer.Mix.source(of: incomingOnly.incoming, at: offset)
+        }
+
         let sampleRate = ClickTrainAudio.sampleRate
         let tolerance = 0.002
-        let head = outgoingOnly.handoffIn
+        let head = outgoingOnly.overlapStart
 
         // How far the map is allowed to be from the audio, at a burst rendered
         // `elapsed` seconds after its deck started playing.
@@ -237,13 +237,13 @@ private func gridError(_ source: TimeInterval, spacing: TimeInterval) -> TimeInt
         // --- The outgoing side, across the head window the live deck is
         // crossfaded out over. This is the control: it was already right, and
         // it is what "right" looks like.
-        let outChannel = channel(of: outgoingOnly.buffer)
+        let outChannel = outgoingOnly.channels[0]
         let outClicks = clickTimes(outChannel, sampleRate: sampleRate)
-            .filter { $0 < head + outgoingOnly.signature.overlapDuration * 0.4 }
+            .filter { $0 < head + outgoingOnly.overlapDuration * 0.4 }
         #expect(outClicks.count >= 4, "expected clicks across the head (\(outClicks.count))")
         var worstOutgoing = 0.0
         for click in outClicks {
-            let error = gridError(outgoingOnly.outgoingTime(at: click),
+            let error = gridError(outgoingSource(at: click),
                                   spacing: ClickTrainAudio.outgoingSpacing)
             // The outgoing deck is bent from the segment's first sample.
             #expect(error < allowance(since: click),
@@ -254,14 +254,14 @@ private func gridError(_ source: TimeInterval, spacing: TimeInterval) -> TimeInt
         // --- The incoming side, across the overlap and the post-roll. The
         // fader opens over the overlap, so the first bursts are genuinely
         // quiet; start looking once the blend is past its knee.
-        let inChannel = channel(of: incomingOnly.buffer)
+        let inChannel = incomingOnly.channels[0]
         let inClicks = clickTimes(inChannel, sampleRate: sampleRate)
-            .filter { $0 > head + incomingOnly.signature.overlapDuration * 0.15 }
+            .filter { $0 > head + incomingOnly.overlapDuration * 0.15 }
         #expect(inClicks.count >= 8, "expected clicks across the tail (\(inClicks.count))")
         var worstIncoming = 0.0
         var worstPostRoll = 0.0
         for click in inClicks {
-            let error = gridError(incomingOnly.incomingTime(at: click),
+            let error = gridError(incomingSource(at: click),
                                   spacing: ClickTrainAudio.incomingSpacing)
             // The incoming deck joins at the seam, so its drift clock starts
             // there — and its join error is the number this whole test exists
@@ -269,7 +269,7 @@ private func gridError(_ source: TimeInterval, spacing: TimeInterval) -> TimeInt
             #expect(error < allowance(since: click - head),
                     "incoming map is off by \(error * 1000) ms at \(click) s")
             worstIncoming = max(worstIncoming, error)
-            if click >= incomingOnly.handoffOutStart - 0.5 {
+            if click >= (incomingOnly.duration - TransitionAutomation.segmentHandoff) - 0.5 {
                 worstPostRoll = max(worstPostRoll, error)
             }
         }
@@ -293,11 +293,11 @@ private func gridError(_ source: TimeInterval, spacing: TimeInterval) -> TimeInt
         // seam, so whatever the map is wrong by there is what the deck joined
         // wrong by. This is the assertion the defect fails outright.
         let firstIn = try #require(inClicks.first)
-        #expect(gridError(incomingOnly.incomingTime(at: firstIn),
+        #expect(gridError(incomingSource(at: firstIn),
                           spacing: ClickTrainAudio.incomingSpacing) < tolerance,
-                "the incoming deck joined \(gridError(incomingOnly.incomingTime(at: firstIn), spacing: ClickTrainAudio.incomingSpacing) * 1000) ms off the seam")
+                "the incoming deck joined \(gridError(incomingSource(at: firstIn), spacing: ClickTrainAudio.incomingSpacing) * 1000) ms off the seam")
 
-        let handoff = incomingOnly.handoffOutStart
+        let handoff = incomingOnly.duration - TransitionAutomation.segmentHandoff
         #expect(worstPostRoll < allowance(since: handoff - head),
                 "the tail hand-over point is off by \(worstPostRoll * 1000) ms")
         let nearest = try #require(inClicks.min {
@@ -306,13 +306,13 @@ private func gridError(_ source: TimeInterval, spacing: TimeInterval) -> TimeInt
         #expect(abs(nearest - handoff) < ClickTrainAudio.incomingSpacing,
                 "no burst near the hand-over to measure against")
         let spacing = ClickTrainAudio.incomingSpacing
-        let known = (incomingOnly.incomingTime(at: nearest) / spacing).rounded() * spacing
-        let resume = incomingOnly.incomingResume
+        let known = (incomingSource(at: nearest) / spacing).rounded() * spacing
+        let resume = incomingSource(at: handoff)
         #expect(abs(resume - (known + handoff - nearest))
                 < allowance(since: handoff - head),
                 "incomingResume \(resume) cues the deck \((resume - known - handoff + nearest) * 1000) ms from the audio")
         // And it is somewhere the incoming track actually is.
-        #expect(resume > incomingOnly.signature.inPoint)
+        #expect(resume > (incomingOnly.incoming.first?.source ?? 0))
     }
 
     /// The dry run and the pump loop are the same arithmetic, which is the only
@@ -346,10 +346,4 @@ private func gridError(_ source: TimeInterval, spacing: TimeInterval) -> TimeInt
         #expect(abs(Double(dry) / 44_100 - (matched.outPoint - outStart)) > 0.05)
     }
 
-    // MARK: - Helpers
-
-    private func channel(of buffer: AVAudioPCMBuffer) -> [Float] {
-        let data = buffer.floatChannelData![0]
-        return Array(UnsafeBufferPointer(start: data, count: Int(buffer.frameLength)))
-    }
 }

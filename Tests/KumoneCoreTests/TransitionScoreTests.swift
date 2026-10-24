@@ -8,11 +8,6 @@ import Foundation
 // with no compiled lanes renders byte-for-byte what it rendered before scores
 // existed.
 //
-// Nothing here needs a separation model, and one test asserts exactly that: a
-// score-only render must never reach for the vocal stem provider, because the
-// whole cost argument for P1 ("~1 s of rendering, no separation runway") is
-// that claim.
-
 // MARK: - Fixtures
 
 /// Shared with `ScoreGestureLibraryTests` (P4), which builds its gestures on
@@ -131,11 +126,6 @@ func scoredStyle(_ score: TransitionScore?) -> TransitionStyle {
                                             events: [ScoredEvent(at: .seam, .silence(beats: 1))])
         #expect(throws: TransitionScore.ValidationFailure.self) { try orphanSilence.validate() }
 
-        // But a score with **no** owner and nothing that needs one is legal,
-        // and P4 needed it to be: a bed decorates the blend the planner already
-        // made and has no opinion about how the outgoing track leaves.
-        #expect(throws: Never.self) { try TransitionScore.bedIntro(bars: 4).validate() }
-        #expect(!TransitionScore.bedIntro(bars: 4).ownsSeam)
         #expect(TransitionScore.cutOnOne().ownsSeam)
 
         // Two: two ways of stopping the same deck at the same instant.
@@ -189,29 +179,20 @@ func scoredStyle(_ score: TransitionScore?) -> TransitionStyle {
     }
 
     @Test func theWholeVocabularyIsPerformableNow() {
-        // P1 named five gestures and could play three. P4 built the other two,
-        // so this property — which the compiler still guards on, for the
-        // gestures the model has yet to grow — is uniformly true.
+        // Every supported event can be compiled into whole-mix audio.
         #expect(ScoreEvent.silence(beats: 1).isSupportedInV1)
-        #expect(ScoreEvent.bedIntro(bars: 2).isSupportedInV1)
         #expect(ScoreEvent.cutOut.isSupportedInV1 && ScoreEvent.echoThrow.isSupportedInV1)
     }
 
     @Test func theSpansHaveSizesThatAreGestures() {
         // A span is only a gesture inside a range. Four beats of nothing is the
-        // player having stopped; a nine-bar bed is the arrangement.
+        // player having stopped.
         for beats in [0.0, -1, 5, Double.nan] {
             #expect(throws: TransitionScore.ValidationFailure.self) {
                 try TransitionScore.tensionCut(beats: beats).validate()
             }
         }
         #expect(throws: Never.self) { try TransitionScore.tensionCut(beats: 1).validate() }
-        for bars in [0, TransitionScore.maxBedIntroBars + 1] {
-            #expect(throws: TransitionScore.ValidationFailure
-                .bedIntroOutOfRange(bars: bars)) {
-                try TransitionScore.bedIntro(bars: bars).validate()
-            }
-        }
     }
 
     @Test func everyTemplateNamesItselfAfterTheGestureNotTheEvents() {
@@ -220,21 +201,8 @@ func scoredStyle(_ score: TransitionScore?) -> TransitionStyle {
         #expect(TransitionScore.cutOnly().label == "cutOnly")
         #expect(TransitionScore.cutOnly(throwingEcho: true).label == "cutOnly+echoThrow")
         #expect(TransitionScore.tensionCut(beats: 1).label == "tensionCut(1)+cutOnOne")
-        #expect(TransitionScore.bedIntro(bars: 4).label == "bedIntro(4)")
     }
 
-    @Test func onlyTheBedCostsASeparationPass() {
-        // The runway class is the whole cost story of the library, and it is a
-        // property of the score rather than a derivation, so the arming path
-        // and the compiler cannot disagree about the bill.
-        for score in [TransitionScore.cutOnOne(), .cutOnOne(throwingEcho: true),
-                      .cutOnly(), .tensionCut(beats: 1)] {
-            #expect(score.runwayClass == .scoreOnly)
-            #expect(!score.needsIncomingStems)
-        }
-        #expect(TransitionScore.bedIntro(bars: 4).runwayClass == .incomingStems)
-        #expect(TransitionScore.bedIntro(bars: 4).needsIncomingStems)
-    }
 }
 
 // MARK: - The compiler
@@ -293,7 +261,7 @@ func scoredStyle(_ score: TransitionScore?) -> TransitionStyle {
 
         // The map the renderer will use, run forwards: the compiled offset has
         // to put the deck exactly on the downbeat the compiler named.
-        let clock = StemTechniqueLayer.SourceClock(rate: Double(plan.incomingRate), glide: glide)
+        let clock = TransitionSourceClock(rate: Double(plan.incomingRate), glide: glide)
         let bar = 4 * 60 / 125.0
         let target = c.seamIncoming + 4 * bar
         let arrived = plan.inPoint + clock.sourceAdvance(to: placed.offset)
@@ -627,7 +595,7 @@ private func aimable(bpm: Double = 120, duration: TimeInterval = 120,
         // to be standing on the drop at the compiled offset.
         let geometry = TransitionAutomation.Geometry(plan: planned.plan)
         let glide = TransitionAutomation.incomingGlide(for: planned.plan, geometry: geometry)
-        let clock = StemTechniqueLayer.SourceClock(rate: Double(aimed.incomingRate),
+        let clock = TransitionSourceClock(rate: Double(aimed.incomingRate),
                                                    glide: glide)
         let arrived = aimed.inPoint + clock.sourceAdvance(to: c.seamOffset)
         #expect(abs(arrived - aim.time) < 1e-3)
@@ -729,7 +697,7 @@ private func aimable(bpm: Double = 120, duration: TimeInterval = 120,
 
     @Test func aStepLandsOnTheFrameItNames() {
         let sampleRate = 44_100.0
-        let clock = StemTechniqueLayer.SourceClock(rate: 1, glide: nil)
+        let clock = TransitionSourceClock(rate: 1, glide: nil)
         let cut = 1.0
         let lane = WholeMixLane([
             .init(t: 0, gainDB: 0),
@@ -755,9 +723,9 @@ private func aimable(bpm: Double = 120, duration: TimeInterval = 120,
     @Test func aBentDeckPutsTheStepOnTheSourceFrameTheOverlapClockNames() {
         // The lane speaks overlap time; the buffer is source frames. At a 4 %
         // bend one second of overlap is 1.04 s of song, and the step has to be
-        // there rather than at 1.0 s — the same map the stem lanes use.
+        // there rather than at 1.0 s.
         let sampleRate = 44_100.0
-        let clock = StemTechniqueLayer.SourceClock(rate: 1.04, glide: nil)
+        let clock = TransitionSourceClock(rate: 1.04, glide: nil)
         let lane = WholeMixLane([
             .init(t: 0, gainDB: 0),
             .init(t: 1 - WholeMixLane.cutEdgeSeconds, gainDB: 0),
@@ -777,8 +745,7 @@ private func aimable(bpm: Double = 120, duration: TimeInterval = 120,
         for channel in 0..<2 {
             for i in 0..<44_100 { buffer.floatChannelData![channel][i] = 0.5 }
         }
-        let side = StemTechniqueLayer.Side(buffer: buffer, source: ScoreFixtures.outgoing,
-                                           windowStart: 0, overlapStartFrame: 0, rate: 1)
+        let side = TransitionAudioSide(buffer: buffer, overlapStartFrame: 0, rate: 1)
         let frames = try WholeMixLaneLayer.apply(WholeMixLane(), to: side, overlap: 1)
         #expect(frames == 0)
         #expect(buffer.floatChannelData![0][100] == 0.5)
@@ -804,36 +771,6 @@ private func aimable(bpm: Double = 120, duration: TimeInterval = 120,
             .init(t: seam, gainDB: 0), .init(t: overlap, gainDB: 0),
         ])
         return lanes
-    }
-
-    @Test func aScoreOnlyRenderNeverAsksForAStem() throws {
-        // The whole cost argument for P1 is this assertion: a full-band gesture
-        // needs no separation, so a score-only segment is a render and nothing
-        // else — ~1 s, and a runway that collapses to the margin.
-        final class Flag: @unchecked Sendable { var asked = false }
-        let flag = Flag()
-        let provider: VocalStemProvider = { request in
-            flag.asked = true
-            return VocalStem(channels: request.samples.map {
-                [Float](repeating: 0, count: $0.count)
-            })
-        }
-
-        var options = OfflineTransitionRenderer.Options()
-        options.preRoll = 2
-        options.postRoll = 2
-        options.normalizeToLUFS = nil
-        options.vocalStemProvider = provider
-        options.mixLanes = lanes(cutAt: 8, overlap: 16)
-
-        let planned = PlannedTransition(plan: .beatMatched(matchedPlan()),
-                                        style: scoredStyle(.cutOnOne()))
-        let mix = try OfflineTransitionRenderer.renderMix(
-            planned, outgoing: ScoreFixtures.outgoing, incoming: ScoreFixtures.incoming,
-            options: options)
-        #expect(!flag.asked, "a score-only render must not reach for a separator")
-        #expect(mix.lanesApplied != nil)
-        #expect(mix.stemApplied == nil)
     }
 
     @Test func theCutIsAudibleInTheRenderedSamples() throws {
@@ -931,16 +868,14 @@ private func aimable(bpm: Double = 120, duration: TimeInterval = 120,
         let vague = ScoreFixtures.analysis(bpm: 120, duration: 240, confidence: 0.5)
         #expect(TransitionPlanner.scoreFamily(outgoing: vague, incoming: confident,
                                               config: enabled) == nil)
-        // With the intent layer on, the class picks the ladder — and only two
-        // of the five classes have one.
+        // With the intent layer on, only cutCulture may offer a score.
         enabled.intentEnabled = true
-        for (klass, family) in [(TransitionIntent.Class.cutCulture, ScoreTemplate.Family.cutCulture),
-                                (.dropAlign, .dropAlign)] {
+        for (klass, family) in [(TransitionIntent.Class.cutCulture, ScoreTemplate.Family.cutCulture)] {
             #expect(TransitionPlanner.scoreFamily(
                 outgoing: confident, incoming: confident,
                 intent: TransitionIntent(klass, reasons: []), config: enabled) == family)
         }
-        for klass in [TransitionIntent.Class.blend, .restrained, .standDown] {
+        for klass in [TransitionIntent.Class.blend, .restrained, .standDown, .dropAlign] {
             #expect(TransitionPlanner.scoreFamily(
                 outgoing: confident, incoming: confident,
                 intent: TransitionIntent(klass, reasons: []), config: enabled) == nil)
@@ -1021,15 +956,18 @@ private func aimable(bpm: Double = 120, duration: TimeInterval = 120,
 
 @Suite struct ScoreSegmentAdmissionTests {
 
-    @Test func aSegmentIsWorthRenderingForAStemTechniqueOrAScoreAndNothingElse() {
+    @Test func aScoreRenderUsesTheFixedRunwayMargin() {
+        #expect(PlayerService.transitionPrerenderRunway == 15)
+    }
+
+    @Test func anUnscoredSegmentHasNothingToRender() {
         let bare = PlannedTransition(plan: .beatMatched(matchedPlan(overlap: 2)),
                                      style: scoredStyle(nil))
         #expect(throws: TransitionSegmentRenderer.SegmentError.self) {
             _ = try TransitionSegmentRenderer.render(
                 TransitionSegmentRenderer.Request(
                     planned: bare, outgoingURL: ScoreFixtures.outgoing,
-                    incomingURL: ScoreFixtures.incoming),
-                provider: { _ in throw StemTechniqueLayer.StemError.noProvider })
+                    incomingURL: ScoreFixtures.incoming))
         }
     }
 
@@ -1040,22 +978,10 @@ private func aimable(bpm: Double = 120, duration: TimeInterval = 120,
             _ = try TransitionSegmentRenderer.render(
                 TransitionSegmentRenderer.Request(
                     planned: scored, outgoingURL: ScoreFixtures.outgoing,
-                    incomingURL: ScoreFixtures.incoming),
-                provider: { _ in throw StemTechniqueLayer.StemError.noProvider })
+                    incomingURL: ScoreFixtures.incoming))
         }
     }
 
-    @MainActor
-    @Test func aScoreOnlySegmentAsksForTheMarginAndNothingMore() {
-        // Separation is the whole runway; without it there is a render pass and
-        // the margin already covers that. A 16 s hand-over that needed 47 s of
-        // lead needs 15.
-        #expect(PlayerService.stemPrerenderRunway(overlapDuration: 16) == 47)
-        #expect(PlayerService.stemPrerenderRunway(overlapDuration: 16,
-                                                  separatesStems: false) == 15)
-        #expect(PlayerService.stemPrerenderRunway(overlapDuration: 30,
-                                                  separatesStems: false) == 15)
-    }
 }
 
 // MARK: - Vetting the score before anything is rendered (P2 addendum)
@@ -1083,11 +1009,8 @@ private func aimable(bpm: Double = 120, duration: TimeInterval = 120,
 
         let vetted = PlayerService.vettingScore(planned, outgoing: out, incoming: inc,
                                                 outgoingURL: nil)
-        // Stripped, so nothing downstream can spawn a render for it: the
-        // segment renderer's own admission is "a stem technique **or** a
-        // score", and with neither there is nothing to attempt.
+        // Removing the score prevents a render from being scheduled.
         #expect(vetted.planned.style.score == nil)
-        #expect(vetted.planned.style.stemTechnique == nil)
         // …with the compiler's actual sentence, not a shrug. This is the string
         // the journal's `score refused:` line and the panel both print, and it
         // is the reason "render produced nothing" used to be standing in for.
@@ -1164,7 +1087,7 @@ private func aimable(bpm: Double = 120, duration: TimeInterval = 120,
         #expect(snapshot.scoreRow.contains("抖动"))
 
         // And the pre-render row, which used to carry all of that, is back to
-        // its own subject: a plan with neither stems nor a score has nothing to
+        // its own subject: an unscored plan has nothing to
         // render, which is a state and not a failure.
         #expect(AutoMixPrerenderState.notNeeded.label == "nothing to pre-render")
         #expect(AutoMixPrerenderState.notNeeded != .idle)
@@ -1202,7 +1125,6 @@ private func aimable(bpm: Double = 120, duration: TimeInterval = 120,
         // nothing" stops standing in for reasons it was never describing.
         let errors: [TransitionSegmentRenderer.SegmentError] = [
             .noOverlap, .overlapTooLong(120), .nothingToRender,
-            .stemsNotApplied("因由"), .stemsNotApplied(nil),
             .scoreNotCompiled("因由"), .scoreNotCompiled(nil),
             .scoreNotApplied("因由"), .scoreNotApplied(nil), .emptyRender,
         ]
@@ -1216,14 +1138,14 @@ private func aimable(bpm: Double = 120, duration: TimeInterval = 120,
 // MARK: - Pre-render start (P2 addendum)
 
 @MainActor
-@Suite struct StemPrerenderStartTests {
+@Suite struct TransitionPrerenderStartTests {
 
-    private let lead = PlayerService.stemPrerenderLead
-    private let settle = PlayerService.stemPrerenderSettleSeconds
+    private let lead = PlayerService.transitionPrerenderLead
+    private let settle = PlayerService.transitionPrerenderSettleSeconds
 
     private func trigger(remaining: TimeInterval, stableFor: TimeInterval,
-                         runway: TimeInterval) -> PlayerService.StemPrerenderTrigger? {
-        PlayerService.stemPrerenderTrigger(remaining: remaining, stableFor: stableFor,
+                         runway: TimeInterval) -> PlayerService.TransitionPrerenderTrigger? {
+        PlayerService.transitionPrerenderTrigger(remaining: remaining, stableFor: stableFor,
                                            runway: runway)
     }
 
@@ -1233,20 +1155,6 @@ private func aimable(bpm: Double = 120, duration: TimeInterval = 120,
         // the same plan a second earlier does not.
         #expect(trigger(remaining: 120, stableFor: settle, runway: 47) == .settled)
         #expect(trigger(remaining: 120, stableFor: settle - 1, runway: 47) == nil)
-
-        // Why it matters: a 30 s overlap needs 75 s of runway and the flat lead
-        // window only ever offered 60. The settle trigger was the first answer
-        // to that, and it is still the answer far out from the splice — but a
-        // seam this wide now also gets a lead window sized to its own work, so
-        // `wide + 1` is *inside* that window and starts on the spot rather than
-        // waiting to be believed.
-        let wide = PlayerService.stemPrerenderRunway(overlapDuration: 30)
-        #expect(wide > lead)
-        #expect(trigger(remaining: wide + 1, stableFor: settle, runway: wide) == .late)
-        #expect(trigger(remaining: wide + 40, stableFor: settle, runway: wide) == .settled)
-        #expect(trigger(remaining: wide + 40, stableFor: 0, runway: wide) == nil)
-        // And the feasibility guard is untouched: 60 s is still not 75 s.
-        #expect(trigger(remaining: lead, stableFor: settle, runway: wide) == nil)
     }
 
     @Test func startingEarlyDoesNotExcuseNotHavingTheRunway() {
@@ -1285,10 +1193,10 @@ private func aimable(bpm: Double = 120, duration: TimeInterval = 120,
         // arms per seam is. Both arms of "already have it" hold it.
         let again = try! #require(
             TransitionSegment.Signature(plan: .beatMatched(matchedPlan(overlap: 16))))
-        #expect(!PlayerService.stemPrerenderDiscards(held: .running(signature), armed: again))
-        #expect(!PlayerService.stemPrerenderDiscards(held: .settled(signature), armed: again))
+        #expect(!PlayerService.transitionPrerenderDiscards(held: .running(signature), armed: again))
+        #expect(!PlayerService.transitionPrerenderDiscards(held: .settled(signature), armed: again))
         // Nothing held is not something to discard either.
-        #expect(!PlayerService.stemPrerenderDiscards(held: .idle, armed: again))
+        #expect(!PlayerService.transitionPrerenderDiscards(held: .idle, armed: again))
     }
 
     @Test func aSeamThatActuallyMovedIsRenderedAgain() {
@@ -1300,8 +1208,8 @@ private func aimable(bpm: Double = 120, duration: TimeInterval = 120,
                       matchedPlan(overlap: 16, inPoint: 9),
                       matchedPlan(overlap: 20)] {
             let armed = try! #require(TransitionSegment.Signature(plan: .beatMatched(moved)))
-            #expect(PlayerService.stemPrerenderDiscards(held: .running(held), armed: armed))
-            #expect(PlayerService.stemPrerenderDiscards(held: .settled(held), armed: armed))
+            #expect(PlayerService.transitionPrerenderDiscards(held: .running(held), armed: armed))
+            #expect(PlayerService.transitionPrerenderDiscards(held: .settled(held), armed: armed))
         }
     }
 
@@ -1340,143 +1248,14 @@ private func aimable(bpm: Double = 120, duration: TimeInterval = 120,
 
         // The two rules are each other's complement, which is what makes the
         // rescue safe: whatever a re-arm would have discarded, a seek does too.
-        for state in [PlayerService.StemPrerenderState.running(held), .settled(held), .idle] {
+        for state in [PlayerService.TransitionPrerenderState.running(held), .settled(held), .idle] {
             for plan in [matchedPlan(overlap: 16), matchedPlan(overlap: 20)] {
                 let armed = try! #require(TransitionSegment.Signature(plan: .beatMatched(plan)))
                 #expect(PlayerService.prerenderSurvivesReArm(parked: state, rearmed: armed)
-                        != PlayerService.stemPrerenderDiscards(held: state, armed: armed)
+                        != PlayerService.transitionPrerenderDiscards(held: state, armed: armed)
                         || state.signature == nil)
             }
         }
-    }
-}
-
-// MARK: - The field sample of 2026-08-31 (P4 addendum)
-
-/// One seam, one journal line, three separate faults:
-///
-///     refused — not enough runway (60.0s left, 74.1s needed for a 29.6s overlap)
-///
-/// with the panel's countdown reading T−01:45 underneath it. The numbers below
-/// are that line's, recomputed from the formula rather than pasted, so the
-/// tests move if the formula ever does.
-@MainActor
-@Suite struct StemPrerenderFieldSampleTests {
-
-    /// A `bedIntro`: the incoming deck only, so one side, and the four-stem
-    /// checkpoint doubles what that side costs.
-    private let overlap: TimeInterval = 29.6
-    private var fourLane: TimeInterval {
-        PlayerService.stemPrerenderRunway(overlapDuration: overlap, sides: 1, fourLane: true)
-    }
-    private var twoLane: TimeInterval {
-        PlayerService.stemPrerenderRunway(overlapDuration: overlap, sides: 1, fourLane: false)
-    }
-
-    @Test func theSampleReproducesItsOwnArithmetic() {
-        #expect(abs(twoLane - 44.6) < 0.05)
-        #expect(abs(fourLane - 74.2) < 0.05)
-        // The shape of the whole problem in one line: the work costs more than
-        // the flat window was ever going to offer, so under the old rule the
-        // only way in was the settle clock, and a deadline-committed pick
-        // spends its life resetting that.
-        #expect(fourLane > PlayerService.stemPrerenderLead)
-    }
-
-    @Test func theWindowNowOpensWhileTheFourLaneRenderStillFits() {
-        let window = PlayerService.stemPrerenderLeadWindow(runway: fourLane)
-        #expect(abs(window - (fourLane + PlayerService.stemPrerenderLeadSlack)) < 0.001)
-        // Inside its own window, with the plan freshly re-armed and no
-        // stability to its name, the render starts. This is the tick the old
-        // code did not have.
-        #expect(PlayerService.stemPrerenderTrigger(
-            remaining: window - 4, stableFor: 0, runway: fourLane) != nil)
-        // And 60 s out it still does not fit, which was never in dispute.
-        #expect(PlayerService.stemPrerenderTrigger(
-            remaining: 60, stableFor: 600, runway: fourLane) == nil)
-    }
-
-    @Test func sixtySecondsBuysTwoLanesRatherThanNothing() {
-        // Defect A. At the moment of the refusal there were 60 s left and the
-        // two-lane bed wanted 44.6 — which is to say the seam was refused for
-        // being unable to afford an upgrade, and lost the gesture it *could*
-        // afford in the process. Installing the four-stem checkpoint made this
-        // seam worse than not having it.
-        #expect(PlayerService.stemPrerenderDegradesToTwoLanes(
-            remaining: 60, fourLaneRunway: fourLane, twoLaneRunway: twoLane))
-        #expect(PlayerService.stemPrerenderTrigger(
-            remaining: 60, stableFor: 0, runway: twoLane) == .lead)
-
-        // Not a licence to spend fewer lanes than the seam can pay for: with
-        // room for four, four it is, and the wait for the plan to hold still is
-        // the settle clock's business, not the lane count's.
-        #expect(!PlayerService.stemPrerenderDegradesToTwoLanes(
-            remaining: 120, fourLaneRunway: fourLane, twoLaneRunway: twoLane))
-        // Below the two-lane bill there is nothing left to shop down to.
-        #expect(!PlayerService.stemPrerenderDegradesToTwoLanes(
-            remaining: 40, fourLaneRunway: fourLane, twoLaneRunway: twoLane))
-
-        // What the journal and the panel say about it. A bare `lanes=2` would
-        // read as "this machine has the vocals model", which is the one thing
-        // it does not mean here.
-        #expect(PlayerService.stemPrerenderLaneTag(
-            separates: true, fourLane: false, degraded: true)
-                == "2 (degraded from 4: runway)")
-        #expect(PlayerService.stemPrerenderLaneTag(
-            separates: true, fourLane: true, degraded: false) == "4")
-        #expect(PlayerService.stemPrerenderLaneTag(
-            separates: true, fourLane: false, degraded: false) == "2")
-        #expect(PlayerService.stemPrerenderLaneTag(
-            separates: false, fourLane: true, degraded: false) == "0")
-    }
-
-    @Test func theRefusalLiftsWhenTheSeamMovesBackOutOfReach() {
-        // Defect B, and the countdown that made it visible: T−01:45 is 105 s,
-        // which is ample for a 74.2 s render, and the seam sat refused anyway.
-        #expect(PlayerService.stemPrerenderRefusalStands(remaining: 60, runway: fourLane))
-        #expect(!PlayerService.stemPrerenderRefusalStands(remaining: 105, runway: fourLane))
-        // The boundary is the runway itself: exactly enough is enough, here as
-        // everywhere else in this file.
-        #expect(!PlayerService.stemPrerenderRefusalStands(remaining: fourLane,
-                                                          runway: fourLane))
-    }
-
-    @Test func aRefusalIsNeverCarriedAcrossASeek() {
-        let signature = try! #require(
-            TransitionSegment.Signature(plan: .beatMatched(matchedPlan(overlap: 16))))
-        let rearmed = try! #require(
-            TransitionSegment.Signature(plan: .beatMatched(matchedPlan(overlap: 16))))
-        // The asymmetry with `.running` and `.settled` is the point. Those two
-        // park a piece of work that is still the right piece of work. A refusal
-        // parks a *clock reading*, and a seek is precisely the event that
-        // rewrites it — so it is dropped and the seam is judged again.
-        #expect(!PlayerService.prerenderSurvivesReArm(
-            parked: .refused(signature, runway: 74.2), rearmed: rearmed))
-        #expect(PlayerService.prerenderSurvivesReArm(parked: .settled(signature),
-                                                     rearmed: rearmed))
-        // It still answers `signature`, so a seam that genuinely moved throws
-        // it away by the ordinary rule rather than by this one.
-        let moved = try! #require(
-            TransitionSegment.Signature(plan: .beatMatched(matchedPlan(overlap: 20))))
-        #expect(PlayerService.stemPrerenderDiscards(
-            held: .refused(signature, runway: 74.2), armed: moved))
-        #expect(!PlayerService.stemPrerenderDiscards(
-            held: .refused(signature, runway: 74.2), armed: rearmed))
-    }
-
-    @Test func theWidestSeamStillDecidesInsideThePickDeadline() {
-        // Why the 120 s decision lead does not have to move for any of this:
-        // the window is bounded by the widest render that can exist, and that
-        // bound is 90 s. `updateAutoMixPick` commits at 120 s, so the winner is
-        // always known before its own window opens — and the pick deadline
-        // keeps budgeting downloads on its own terms.
-        let widest = PlayerService.stemPrerenderRunway(
-            overlapDuration: TransitionSegmentRenderer.maxOverlap, sides: 2)
-        let bed = PlayerService.stemPrerenderRunway(
-            overlapDuration: TransitionSegmentRenderer.maxOverlap, sides: 1, fourLane: true)
-        #expect(bed == widest)
-        #expect(PlayerService.stemPrerenderLeadWindow(runway: widest) == 90)
-        #expect(PlayerService.stemPrerenderLeadWindow(runway: widest) < 120)
     }
 }
 
@@ -1733,13 +1512,4 @@ private func aimable(bpm: Double = 120, duration: TimeInterval = 120,
                                           flankTolerance: 0.0625) == nil)
     }
 
-    @Test func aDecoratingScoreIsLoosenedOnTheAnchorAndNotTheBackstop() {
-        // P4's relaxation, moved onto the layer that carries cut-grade
-        // precision. A bed does not need the cut's tolerance at its landing —
-        // but a bar grid the detector has lost is no better a place for a bed
-        // than for a cut, so the backstop is not doubled for anybody.
-        #expect(ScoreCompiler.decoratingJitterMultiple == 2)
-        #expect(ScoreCompiler.anchorFlankTolerance * ScoreCompiler.decoratingJitterMultiple
-                < 2 * (2.0 / 8) / 2.0, "a doubled anchor line must stay inside a half beat")
-    }
 }

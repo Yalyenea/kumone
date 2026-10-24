@@ -24,9 +24,8 @@ jobs:
       - name: Test
         run: swift test
 
-      # Same invocation as release.yml, minus signing / notarization: the
-      # script's own ad-hoc signature is all an unsigned build gets.
+      # Verify the app bundle with a local ad-hoc signature.
       - name: Build app (universal, unsigned)
         run: |
-          ARCHES="arm64 x86_64" FETCH_MLX_METALLIB=1 \
+          ARCHES="arm64 x86_64" \
             Scripts/build-app.sh release

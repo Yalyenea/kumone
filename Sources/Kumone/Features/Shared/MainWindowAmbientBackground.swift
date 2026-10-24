@@ -1,8 +1,6 @@
 import SwiftUI
 
-#if os(macOS)
 import AppKit
-#endif
 
 /// A non-interactive artwork tint layered above opaque system surfaces. The low
 /// opacity keeps system materials and controls readable.
@@ -79,7 +77,6 @@ enum MainWindowAmbientOpacity {
     }
 }
 
-#if os(macOS)
 struct MainWindowAmbientConfiguration {
     let showsAmbientBackground: Bool
     let showsTitlebarAmbientBackground: Bool
@@ -306,4 +303,3 @@ private final class TitlebarMaskView: NSView {
         )
     }
 }
-#endif

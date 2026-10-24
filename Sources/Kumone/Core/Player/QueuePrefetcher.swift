@@ -1,4 +1,5 @@
 import Foundation
+import UniformTypeIdentifiers
 
 struct QueuePrefetchRequest: Equatable {
     let scope: String?
@@ -128,7 +129,7 @@ final class QueuePrefetcher {
                 guard isCurrent(ticket) else { return }
                 // A song the cache could never hold is skipped; one the window
                 // has no room for ends the window.
-                guard CachingAudioResourceLoader.canCache(contentLength: max(source.byteCount, 1), maximumSizeMB: limitMB) else { continue }
+                guard Self.canCache(contentLength: max(source.byteCount, 1), maximumSizeMB: limitMB) else { continue }
                 guard source.byteCount <= limits.bytes - windowBytes else { windowStopped = true; return }
                 let stored = try await store(source, track: track, quality: request.quality, limitMB: limitMB, ticket: ticket)
                 guard isCurrent(ticket) else { return }
@@ -161,10 +162,10 @@ final class QueuePrefetcher {
         guard let http, (200..<300).contains(http.statusCode) else { throw URLError(.badServerResponse) }
         let byteCount = Int64((try? temporary.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
         guard byteCount > 0 else { throw URLError(.zeroByteResource) }
-        guard CachingAudioResourceLoader.canCache(contentLength: byteCount, maximumSizeMB: limitMB) else { return nil }
+        guard Self.canCache(contentLength: byteCount, maximumSizeMB: limitMB) else { return nil }
         let contentType = http.mimeType ?? http.value(forHTTPHeaderField: "Content-Type")
         guard let fileExtension = source.fileExtension.flatMap({ Self.sanitized($0) })
-            ?? CachingAudioResourceLoader.fileExtension(for: source.url, contentType: contentType) else { return nil }
+            ?? Self.fileExtension(for: source.url, contentType: contentType) else { return nil }
         let session = try await cache.beginWrite(trackID: track.id, requestedQuality: quality, servedQuality: source.servedQuality,
                                                  source: .netease, fileExtension: fileExtension, maximumSizeMB: limitMB)
         do {
@@ -203,10 +204,43 @@ final class QueuePrefetcher {
         }
     }
 
+    // File validation belongs to the prefetcher now that playback streams
+    // through the dual-deck engine instead of an AVPlayer resource loader.
+    nonisolated static func fileExtension(for url: URL, contentType: String?) -> String? {
+        let pathExtension = url.pathExtension.lowercased()
+        if !pathExtension.isEmpty,
+           pathExtension.unicodeScalars.allSatisfy({ CharacterSet.alphanumerics.contains($0) }),
+           pathExtension.count <= 10 {
+            return pathExtension
+        }
+
+        let normalizedContentType = contentType?.split(separator: ";", maxSplits: 1)
+            .first?.lowercased()
+        switch normalizedContentType {
+        case "audio/mpeg", "audio/mp3": return "mp3"
+        case "audio/mp4", "audio/x-m4a": return "m4a"
+        case "audio/aac": return "aac"
+        case "audio/flac", "audio/x-flac": return "flac"
+        case "audio/ogg": return "ogg"
+        default: return nil
+        }
+    }
+
+    nonisolated static func resourceContentType(for fileExtension: String) -> String? {
+        guard let type = UTType(filenameExtension: fileExtension),
+              !type.isDynamic,
+              type.conforms(to: .audio) else { return nil }
+        return type.identifier
+    }
+
+    nonisolated static func canCache(contentLength: Int64, maximumSizeMB: Int) -> Bool {
+        contentLength > 0 && contentLength <= Int64(max(maximumSizeMB, 0)) * 1_000_000
+    }
+
     private static func sanitized(_ fileExtension: String) -> String? {
         let value = fileExtension.lowercased()
         guard !value.isEmpty, value.count <= 10, value.unicodeScalars.allSatisfy(CharacterSet.alphanumerics.contains) else { return nil }
-        return CachingAudioResourceLoader.resourceContentType(for: value) == nil ? nil : value
+        return Self.resourceContentType(for: value) == nil ? nil : value
     }
 
     /// NetEase's own file at the chosen quality. Trials and songs it refuses

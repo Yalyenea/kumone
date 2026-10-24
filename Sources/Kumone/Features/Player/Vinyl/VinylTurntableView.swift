@@ -188,7 +188,6 @@ private final class DiscSpinController {
     }
 }
 
-#if os(macOS)
 private struct SpinningVinylDisc: PlatformViewRepresentable {
     let artworkImage: PlatformImage?
     let discSize: CGFloat
@@ -209,30 +208,7 @@ private struct SpinningVinylDisc: PlatformViewRepresentable {
         CGSize(width: discSize + 6, height: discSize + 6)
     }
 }
-#else
-private struct SpinningVinylDisc: PlatformViewRepresentable {
-    let artworkImage: PlatformImage?
-    let discSize: CGFloat
-    let spinning: Bool
 
-    func makeUIView(context: Context) -> VinylDiscHost {
-        let host = VinylDiscHost(artworkImage: artworkImage, size: discSize)
-        host.spin.setSpinning(spinning)
-        return host
-    }
-
-    func updateUIView(_ host: VinylDiscHost, context: Context) {
-        host.update(artworkImage: artworkImage, size: discSize)
-        host.spin.setSpinning(spinning)
-    }
-
-    func sizeThatFits(_ proposal: ProposedViewSize, uiView: VinylDiscHost, context: Context) -> CGSize? {
-        CGSize(width: discSize + 6, height: discSize + 6)
-    }
-}
-#endif
-
-#if os(macOS)
 /// Hosts the record and takes no hits: taps and swipes belong to the SwiftUI
 /// gestures wrapped around this representable.
 ///
@@ -270,35 +246,3 @@ private final class VinylDiscHost: NSView {
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
-#else
-/// Hosts the record and takes no hits: taps and swipes belong to the SwiftUI
-/// gestures wrapped around this representable.
-private final class VinylDiscHost: UIView {
-    private let record: UIHostingController<VinylRecordView>
-    /// Spins the record's own view, not this host: SwiftUI lays the host out
-    /// by `frame`, which UIKit leaves undefined under a non-identity transform.
-    private(set) lazy var spin = DiscSpinController(layer: record.view.layer)
-
-    init(artworkImage: PlatformImage?, size: CGFloat) {
-        record = UIHostingController(rootView: VinylRecordView(artworkImage: artworkImage, size: size))
-        super.init(frame: .zero)
-        record.view.backgroundColor = .clear
-        addSubview(record.view)
-    }
-
-    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
-
-    func update(artworkImage: PlatformImage?, size: CGFloat) {
-        record.rootView = VinylRecordView(artworkImage: artworkImage, size: size)
-    }
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        // `bounds` + `center`, not `frame`: the record view is rotated.
-        record.view.bounds = CGRect(origin: .zero, size: bounds.size)
-        record.view.center = CGPoint(x: bounds.midX, y: bounds.midY)
-    }
-
-    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? { nil }
-}
-#endif

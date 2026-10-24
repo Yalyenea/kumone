@@ -523,7 +523,7 @@ import Foundation
 
     /// The glide's integral is the map from overlap time onto the incoming
     /// song's own clock, and everything that places an instant on that clock —
-    /// the stem layer above all — reads it. Checked against direct numerical
+    /// the whole-mix gain layer — reads it. Checked against direct numerical
     /// integration of the rate curve, and inverted back again.
     @Test func theGlideIntegralMatchesNumericalIntegration() throws {
         let glide = TransitionAutomation.IncomingGlide(bent: 0.9607, start: 6, end: 20)
@@ -560,7 +560,7 @@ import Foundation
         let naive = 20 * 0.9607
         let actual = glide.sourceAdvance(to: 20)
         #expect(abs((actual - naive) - 0.5 * (1 - 0.9607) * 14) < 0.01)
-        #expect(actual - naive > 0.15, "…which is well past a stem layer's budget")
+        #expect(actual - naive > 0.15, "…which is well past the gain layer's timing budget")
     }
 
     /// Live and offline agree on the new curve: the renderer walks the incoming

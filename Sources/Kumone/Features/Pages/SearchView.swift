@@ -76,25 +76,6 @@ struct SearchView: View {
 
     var body: some View {
         searchContent
-        #if os(iOS)
-        // iPad enters SearchView from the sidebar, where the desktop window
-        // toolbar search field is unavailable. On macOS, MainWindow owns the
-        // only search field and navigates here with its submitted query.
-        .searchable(text: $searchText, prompt: "搜索歌曲、歌手、专辑、歌单")
-        .onSubmit(of: .search) {
-            model.setQuery(searchText)
-            Task { await model.load(tab: model.tab) }
-        }
-        .onChange(of: searchText) { newValue in
-            model.setQuery(newValue)
-            Task {
-                try? await Task.sleep(nanoseconds: 400_000_000)
-                if searchText == newValue {
-                    await model.load(tab: model.tab)
-                }
-            }
-        }
-        #endif
         .navigationTitle(searchText.isEmpty ? "搜索" : String(localized: "搜索：\(searchText)"))
         .task(id: model.tab) {
             await model.load(tab: model.tab)
@@ -103,7 +84,6 @@ struct SearchView: View {
 
     @ViewBuilder
     private var searchContent: some View {
-        #if os(macOS)
         if model.tab == .songs, !searchText.trimmingCharacters(in: .whitespaces).isEmpty {
             TrackListScrollView(trackIDs: model.songs.map(\.id)) {
                 VStack(spacing: 20) {
@@ -121,9 +101,6 @@ struct SearchView: View {
         } else {
             mixedResults.clipped()
         }
-        #else
-        mixedResults
-        #endif
     }
 
     private var mixedResults: some View {

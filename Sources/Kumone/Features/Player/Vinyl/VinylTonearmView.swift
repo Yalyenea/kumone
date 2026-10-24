@@ -341,7 +341,6 @@ private final class TonearmMotionController {
     }
 }
 
-#if os(macOS)
 private struct EngagingTonearm<Content: View>: PlatformViewRepresentable {
     let arm: Content
     let engaged: Bool
@@ -415,83 +414,3 @@ private final class TonearmHost<Content: View>: NSView {
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
-
-#else
-private struct EngagingTonearm<Content: View>: PlatformViewRepresentable {
-    let arm: Content
-    let engaged: Bool
-    let wobbling: Bool
-    let animated: Bool
-    let width: CGFloat
-    let height: CGFloat
-    let pivotY: CGFloat
-
-    func makeUIView(context: Context) -> TonearmHost<Content> {
-        TonearmHost(arm: arm, engaged: engaged, wobbling: wobbling,
-                    width: width, height: height, pivotY: pivotY)
-    }
-
-    func updateUIView(_ host: TonearmHost<Content>, context: Context) {
-        host.update(arm: arm, width: width, height: height, pivotY: pivotY)
-        host.motion.setEngaged(engaged, animated: animated)
-        host.motion.setWobbling(wobbling)
-    }
-
-    func sizeThatFits(_ proposal: ProposedViewSize, uiView: TonearmHost<Content>, context: Context) -> CGSize? {
-        CGSize(width: width, height: height)
-    }
-}
-
-/// Same square stage as the macOS host — see above.
-private final class TonearmHost<Content: View>: UIView {
-    private let armController: UIHostingController<Content>
-    private let stage = UIView()
-    private var width: CGFloat
-    private var height: CGFloat
-    private var pivotY: CGFloat
-    private(set) var motion: TonearmMotionController!
-
-    init(arm: Content, engaged: Bool, wobbling: Bool,
-         width: CGFloat, height: CGFloat, pivotY: CGFloat) {
-        armController = UIHostingController(rootView: arm)
-        self.width = width
-        self.height = height
-        self.pivotY = pivotY
-        super.init(frame: .zero)
-        armController.view.backgroundColor = .clear
-        addSubview(stage)
-        stage.addSubview(armController.view)
-        motion = TonearmMotionController(layer: stage.layer, engaged: engaged)
-        motion.setWobbling(wobbling)
-    }
-
-    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
-
-    func update(arm: Content, width: CGFloat, height: CGFloat, pivotY: CGFloat) {
-        armController.rootView = arm
-        self.width = width
-        self.height = height
-        self.pivotY = pivotY
-        setNeedsLayout()
-    }
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        let side = Self.stageSide(width: width, height: height, pivotY: pivotY)
-        // `bounds` + `center`, not `frame`: the stage is rotated (parked at
-        // −32° from the start), and UIKit leaves `frame` undefined then.
-        stage.bounds = CGRect(x: 0, y: 0, width: side, height: side)
-        stage.center = CGPoint(x: bounds.midX, y: pivotY)
-        armController.view.frame = CGRect(x: side / 2 - width / 2, y: side / 2 - pivotY,
-                                          width: width, height: height)
-    }
-
-    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? { nil }
-
-    private static func stageSide(width: CGFloat, height: CGFloat, pivotY: CGFloat) -> CGFloat {
-        let reach = hypot(width / 2, max(pivotY, height - pivotY))
-        return (reach + 12).rounded(.up) * 2
-    }
-}
-#endif
-

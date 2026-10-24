@@ -179,35 +179,12 @@ struct BeatMatchedPlan {
   - `automixTransitionsEnabled: Bool`（自动过渡，默认 **开**）
   - `automixOrderEnabled: Bool`（智能顺序 / `.autoMix` 队列顺序，默认 **关**；会额外下载候选歌曲打分）
   - `loudnessCompensationEnabled: Bool`（统一响度，默认 **开**）
-  - `automixStemsEnabled: Bool`（分离音轨增强过渡，默认 **关**；模型未安装时禁用并显示为关）
-  - 分析只在「主开关开 且（过渡 或 智能顺序 或 响度）开」时进行（`PlayerService.analysisWanted`）；过渡只看主开关 + 过渡子项；分离只在过渡开 + 分离子项开 + 已安装分离器时发生，否则整曲（whole-mix）静默退化。
+  - 分析只在「主开关开 且（过渡 或 智能顺序 或 响度）开」时进行（`PlayerService.analysisWanted`）；过渡只看主开关 + 过渡子项。
   - `audioCacheLimit`（枚举，默认 2 GB）+ 设置页显示当前占用、一键清空。
 - 队列顺序只有一个控件：随机按钮循环 `列表 → 随机 → AutoMix → 列表`（`autoMixOrderAvailable` 为假时退回两态）。Dock 菜单为同一三态的子菜单。
 - NowPlaying/PlayerBar：过渡进行中显示轻量指示（如进度条尾部渐变或小图标），不做复杂动效，具体样式实现时定。
 - 过渡进行中按「下一首」不再硬切：已经出声的过渡放它走完，只是"已武装未开始"的则把接缝提前到当下（`PlaybackEngine.startHandOverNow`）。
 - 调试面板（DEBUG only）：当前曲 BPM/置信度、下一过渡的 plan 类型与选点，便于调参。
-
-### 分离模型的分发（stem-models-v1）
-
-增强过渡要用的两个 RoFormer checkpoint 不随包分发，而是作为一个 GitHub Release 的附件：
-
-    https://github.com/XerWandeRer/kumone/releases/download/stem-models-v1/<文件名>
-
-| 文件 | 大小 | 用途 |
-|---|---|---|
-| `mel_roformer_vocals.safetensors` | 67 MB | 两轨（人声 / 伴奏），所有 stem 手法的前提 |
-| `bs_roformer_4stem.safetensors` | 264 MB | 四轨（人声 / 鼓 / 贝斯 / 其他），可选；缺失时四轨手法退化为两轨 |
-
-- 设置页 `StemModelsSettingsSection`（AutoMix 分组，增强过渡开关下方）调用 `StemModelDownloader.shared`：
-  下载到临时文件 → 校验 SHA-256 → 原子移动到 `~/Library/Application Support/Kumone/Models/`。
-  校验不过的文件一律删除并回到"未下载"，不会被使用。
-- 摘要与字节数硬编码在两处（StemKit `ModelDescriptor`、KumoneCore `StemModelSpec`），
-  由 `StemModelDownloaderTests.manifestMatchesStemKitsDescriptors` 保证不漂移。
-- 上游地址（Hugging Face / ZFTurbo 的 PyTorch checkpoint）保留在 `ModelDescriptor.url` 里，
-  仅供脚本和溯源使用；四轨模型的上游是 `.ckpt`，转换仍由 `Scripts/fetch-4stem-checkpoint.sh` 完成。
-- 发布（维护者，本机已有两个文件时）：`Scripts/publish-stem-models.sh`，
-  它会建 / 更新 `stem-models-v1` 这个 tag 的 release、上传附件并打印 SHA-256。
-
 
 ## 8. 里程碑
 

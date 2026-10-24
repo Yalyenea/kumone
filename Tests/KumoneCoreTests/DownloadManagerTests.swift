@@ -235,11 +235,6 @@ struct DownloadManagerTests {
         try Data("invalid".utf8).write(to: file)
         await h.enqueue()
         #expect(!h.manager.isReady && h.manager.errorMessage == String(localized: "无法读取下载记录，请重试"))
-        // Events must still drain while protected/unreadable catalog data is unavailable.
-        var finished = false
-        h.manager.registerBackgroundCompletion { finished = true }
-        h.transport.continuation.yield(.backgroundEventsFinished)
-        try await waitForDownload { finished }
         try JSONEncoder().encode(DownloadCatalog()).write(to: file, options: .atomic)
         await h.enqueue()
         try await waitForDownload { h.transport.started.count == 1 }
@@ -270,10 +265,6 @@ struct DownloadManagerTests {
         #expect(!h.manager.isReady)
         h.transport.start(resource: resource, token: token, allowsMetered: true, resumeData: nil)
         try h.transport.finish(h.transport.started[0])
-        var drained = false
-        h.manager.registerBackgroundCompletion { drained = true }
-        h.transport.continuation.yield(.backgroundEventsFinished)
-        try await waitForDownload { drained }
         #expect(try h.transport.completedDownloads().count == 1)
         try JSONEncoder().encode(DownloadCatalog(jobs: [job])).write(to: file, options: .atomic)
         await h.manager.start()
@@ -306,54 +297,7 @@ struct DownloadManagerTests {
         #expect(try await h.persistence.load().jobs.allSatisfy { $0.allowsMetered })
     }
 
-    @Test func backgroundPreparationExpirationRecoversOnForeground() async throws {
-        let gate = DownloadRestoreGate()
-        var preparations = 0
-        let h = try DownloadHarness(resolver: { track, quality, scope in
-            let resource = try await DownloadHarness.resolve(track: track, quality: quality, scope: scope)
-            preparations += 1
-            if preparations == 1 { await gate.wait() }
-            return resource
-        })
-        defer { gate.open(); h.close() }
-        await h.enqueue()
-        try await waitForDownload { gate.entered }
-        let job = try #require(h.manager.jobs.first), attempt = try #require(job.attempt)
-        h.manager.preparationExpired(jobID: job.id, attempt: attempt)
-        #expect(h.manager.jobs.first?.status == .queued && h.manager.jobs.first?.attempt == nil)
-        h.manager.setNetwork(h.manager.network)
-        #expect(h.transport.started.isEmpty)
-        h.manager.resumeAfterForeground()
-        try await waitForDownload { h.transport.started.count == 1 }
-        gate.open()
-        try h.transport.finish(h.transport.started[0])
-        try await waitForDownload { h.manager.jobs.first?.status == .complete }
-        #expect(preparations == 2)
-    }
 
-    @Test func preparationExpirationCannotUndoACompletedCachePromotion() async throws {
-        let gate = DownloadRestoreGate()
-        var blockRead = false
-        let h = try DownloadHarness(metadataReader: { _, _ in
-            if blockRead { await gate.wait() }
-            return nil
-        })
-        defer { gate.open(); h.close() }
-        await h.manager.start()
-        let input = h.root.appendingPathComponent("completed.mp3")
-        try h.fixture.data.write(to: input)
-        try await h.store.importDownload(at: input, descriptor: h.fixture.descriptor)
-        blockRead = true
-        await h.enqueue()
-        try await waitForDownload { gate.entered }
-        let job = try #require(h.manager.jobs.first), attempt = try #require(job.attempt)
-        #expect(job.status == .complete)
-        h.manager.preparationExpired(jobID: job.id, attempt: attempt)
-        #expect(h.manager.jobs.first?.status == .complete)
-        gate.open()
-        try await waitForDownload { h.manager.downloadedTracks.count == 1 }
-        #expect(h.transport.started.isEmpty && h.manager.pendingJobs.isEmpty)
-    }
 
     @Test func redownloadingAfterRemovalStartsWithFreshProgress() async throws {
         let gate = DownloadRestoreGate()
@@ -1549,19 +1493,6 @@ struct DownloadManagerTests {
         #expect(saved.jobs.first { $0.quality == "lossless" }?.status == .complete)
     }
 
-    @Test func backgroundCompletionRunsAfterAudioImport() async throws {
-        let h = try DownloadHarness()
-        defer { h.close() }
-        await h.enqueue()
-        try await waitForDownload { !h.transport.started.isEmpty }
-        var completed = false
-        h.manager.registerBackgroundCompletion { completed = true }
-        try h.transport.finish(h.transport.started[0])
-        h.transport.continuation.yield(.backgroundEventsFinished)
-        try await waitForDownload { completed }
-        #expect(h.manager.jobs.first?.status == .complete)
-        #expect(try await h.persistence.load().jobs.first?.status == .complete)
-    }
 
     @Test func realDownloadTaskImportsCompleteAudio() async throws {
         let h = try DownloadHarness()

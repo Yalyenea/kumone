@@ -85,13 +85,8 @@ struct LyricText: View {
 }
 
 private extension View {
-    /// `geometryGroup()` is iOS 17+; the iOS 16 build keeps the plain view.
     @ViewBuilder
     func geometryGroupIfAvailable() -> some View {
-        if #available(iOS 17.0, macOS 14.0, *) {
-            geometryGroup()
-        } else {
-            self
-        }
+        geometryGroup()
     }
 }

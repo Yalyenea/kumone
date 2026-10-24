@@ -2,9 +2,7 @@ import SwiftUI
 
 struct MainWindow: View {
     private let externalPath: Binding<[Destination]>?
-#if os(macOS)
     @Environment(\.openWindow) private var openWindow
-#endif
     @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var player: PlayerService
     @EnvironmentObject private var account: AccountStore
@@ -15,11 +13,7 @@ struct MainWindow: View {
     /// while it is not (miniaturised or hidden), see the overlay below.
     @ObservedObject private var windowVisibility = MainWindowVisibility.shared
 
-    #if os(macOS)
     @StateObject private var artworkStore = NowPlayingArtworkStore()
-    #else
-    @EnvironmentObject private var artworkStore: NowPlayingArtworkStore
-    #endif
     @State private var selection: SidebarItem = .home
     @State private var localPath: [Destination] = []
     @State private var showLogin = false
@@ -84,7 +78,7 @@ struct MainWindow: View {
                     Color.clear.frame(width: 1, height: 1)
                 }
             } else {
-                if #available(macOS 26.0, iOS 26.0, *) {
+                if #available(macOS 26.0, *) {
                     ToolbarItem(placement: .primaryAction) {
                         SearchFieldView { query in
                             path.append(Destination.search(query))
@@ -103,7 +97,6 @@ struct MainWindow: View {
                 }
             }
         }
-        #if os(macOS)
         // Immersive now-playing page: its real toolbar items (sidebar toggle,
         // title, search field) step aside, and a placeholder keeps the
         // NSToolbar — and the titlebar height that positions the window
@@ -126,33 +119,24 @@ struct MainWindow: View {
                 toolbarHidden: nowPlayingChromeHidden
             )
         )
-        #endif
         .playerChrome(geometry: mainColumnGeometry)
-        #if os(macOS)
         .modifier(OfflinePlaybackAlert(player: player, onDownloads: { openDestination(.downloaded) }))
         .modifier(MeteredDownloadAlert())
-        #endif
         .environment(\.openLogin, { showLogin = true })
         .environment(\.openDestination, openDestination)
-        #if os(macOS)
         .modifier(PlaybackLifecycle())
-        #endif
         .onReceive(NotificationCenter.default.publisher(for: .showDownloadedMusic)) { _ in
             player.showNowPlaying = false
             selection = .downloaded
             path = []
         }
-        #if os(macOS)
         .environmentObject(artworkStore)
-        #endif
         .task {
-#if os(macOS)
             // Keep this action in the app delegate: when the user closes the
             // last WindowGroup window, there is no view left to receive a
             // Dock reopen event directly.
             AppDelegate.shared?.openMainWindow = { openWindow(id: "main") }
             artworkStore.setArtworkNeeded(needsCurrentArtwork)
-#endif
             DesktopLyricsController.shared.sync(with: settings.showDesktopLyrics)
             await DownloadManager.shared.start()
             if KumonePaths.isOfflineUITest { selection = .downloaded }
@@ -161,7 +145,6 @@ struct MainWindow: View {
         .onChange(of: settings.showDesktopLyrics) { _ in
             DesktopLyricsController.shared.sync(with: settings.showDesktopLyrics)
         }
-        #if os(macOS)
         .onChange(of: settings.showMainWindowAmbientBackground) { _ in
             artworkStore.setArtworkNeeded(needsCurrentArtwork)
         }
@@ -170,9 +153,7 @@ struct MainWindow: View {
         .onChange(of: player.hasCurrentTrack) { _ in
             artworkStore.setArtworkNeeded(needsCurrentArtwork)
         }
-        #endif
         .onChange(of: player.showNowPlaying) { _ in
-            #if os(macOS)
             artworkStore.setArtworkNeeded(needsCurrentArtwork)
             nowPlayingChromeTask?.cancel()
             if player.showNowPlaying {
@@ -195,7 +176,6 @@ struct MainWindow: View {
                 nowPlayingChromeHidden = false
                 nowPlayingChromeFadedOut = false
             }
-            #endif
         }
         .sheet(isPresented: $showLogin) {
             LoginSheet()
@@ -207,7 +187,6 @@ struct MainWindow: View {
             // page takes a single frame when the window comes back. The
             // player state — and the page on restore — is untouched.
             if player.showNowPlaying, windowVisibility.isOnScreen {
-                #if os(macOS)
                 NowPlayingView(onOpenDestination: openDestination)
                     .environmentObject(artworkStore)
                     .background(ArrowCursorOverride())
@@ -215,10 +194,6 @@ struct MainWindow: View {
                     // inserted asynchronously while the transition is running.
                     .geometryGroup()
                     .transition(.move(edge: .bottom).combined(with: .opacity))
-                #else
-                NowPlayingView(onOpenDestination: openDestination)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                #endif
             }
         }
         .overlay(alignment: .top) {
@@ -244,7 +219,6 @@ struct MainWindow: View {
     }
 
     private func openDestination(_ destination: Destination) {
-        #if os(macOS)
         guard player.showNowPlaying else {
             path.appendIfNotCurrent(destination)
             return
@@ -255,10 +229,6 @@ struct MainWindow: View {
         } completion: {
             path.appendIfNotCurrent(destination)
         }
-        #else
-        player.showNowPlaying = false
-        path.appendIfNotCurrent(destination)
-        #endif
     }
 
     @ViewBuilder
@@ -273,9 +243,6 @@ struct MainWindow: View {
         case .fm:
             FMView()
         case .search:
-            // iPad search entry: SearchView's `.searchable` bar surfaces in the
-            // detail nav bar (the desktop toolbar search field doesn't render on
-            // iPad). (#59)
             SearchView(query: "")
         case .likedSongs:
             if let playlist = account.likedSongsPlaylist {
@@ -312,7 +279,6 @@ struct MainWindow: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    #if os(macOS)
     private var needsCurrentArtwork: Bool {
         settings.showMainWindowAmbientBackground || player.hasCurrentTrack
     }
@@ -320,10 +286,8 @@ struct MainWindow: View {
     private var isDarkAppearance: Bool {
         (settings.appearance.colorScheme ?? colorScheme) == .dark
     }
-    #endif
 }
 
-#if os(macOS)
 // MARK: - Cursor override
 
 /// Claims the arrow cursor over the whole now-playing page. AppKit cursor
@@ -651,7 +615,6 @@ struct MainWindowConfigurator: NSViewRepresentable {
 private final class HiddenToolbarItemView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
-#endif
 
 // MARK: - Search field
 
@@ -684,10 +647,8 @@ struct SearchFieldView: View {
         .padding(.vertical, 5)
         .background(.primary.opacity(0.05), in: Capsule())
         .overlay(Capsule().strokeBorder(.primary.opacity(focused ? 0.18 : 0.08), lineWidth: 1))
-        #if os(macOS)
         // Keep the capsule off the window's rounded top-right corner (#88).
         .padding(.trailing, 8)
-        #endif
         .animation(AppAnimation.quick, value: focused)
         .task {
             if let keyword = try? await NeteaseAPI.searchDefaultKeyword(), !keyword.isEmpty {

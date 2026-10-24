@@ -1,4 +1,3 @@
-#if os(macOS)
 import Foundation
 
 // The AutoMix queue-reorder scorer (docs/automix-queue-predev.md §2.3).
@@ -275,7 +274,7 @@ enum QueueOrderScorer {
     ///
     /// - Parameter planned: the transition `TransitionPlanner.plan(A, B)` came
     ///   back with. Taken as a parameter rather than planned here so the caller
-    ///   controls the planner config, the stem availability and the lyric
+    ///   controls the planner config, the lyric
     ///   context — and so this stays testable without two real analyses.
     /// - Parameter lostRounds: how many picks this candidate has already been
     ///   passed over for.
@@ -362,7 +361,7 @@ enum QueueOrderScorer {
         for key in sample {
             guard let incoming = analysis(key) else { continue }
             let planned = TransitionPlanner.plan(
-                outgoing: outgoing, incoming: incoming, stems: .none,
+                outgoing: outgoing, incoming: incoming,
                 config: plannerConfig, context: .init(outgoingLyricLineEnds: []))
             if TransitionTier(planned) >= config.satisfyingTier { reached += 1 }
         }
@@ -400,7 +399,7 @@ enum QueueOrderScorer {
             for (index, key) in pool.enumerated() {
                 guard let incoming = analysis(key) else { continue }
                 let planned = TransitionPlanner.plan(
-                    outgoing: outgoing, incoming: incoming, stems: .none,
+                    outgoing: outgoing, incoming: incoming,
                     config: plannerConfig, context: .init(outgoingLyricLineEnds: []))
                 let s = score(outgoing: outgoing, incoming: incoming, planned: planned,
                               config: config, plannerConfig: plannerConfig)
@@ -702,4 +701,3 @@ extension QueueOrderConfig {
         return config
     }
 }
-#endif

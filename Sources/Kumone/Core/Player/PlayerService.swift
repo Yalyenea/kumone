@@ -1,10 +1,4 @@
-// macOS player: the dual-deck `PlaybackEngine` with AutoMix, stems and the
-// output-device picker. iOS never gets AutoMix and keeps the original
-// AVPlayer-based `PlayerService` in PlayerServiceIOS.swift (kept identical to
-// the pre-AutoMix file). Exactly one of the two compiles per platform, so
-// every call site sees a single `PlayerService`; anything shared UI calls on
-// it must exist in both, or be guarded with `#if os(macOS)` at the call site.
-#if os(macOS)
+// The dual-deck player with AutoMix and audio output selection.
 import Combine
 import AVFoundation
 import Foundation
@@ -246,14 +240,14 @@ final class PlayerService: ObservableObject {
     private var prefetchTask: Task<Void, Never>?
     private var prefetchedNext: PrefetchedNext? { didSet { publishCacheFilesInUse() } }
     private var pendingTransitionTrack: Track?
-    /// The plan the engine is currently holding, kept so the stem pre-render
+    /// The plan the engine is currently holding, kept so the transition pre-render
     /// knows which seam it is rendering for (and notices when a re-plan moves
     /// it). Nil whenever no hand-over is armed.
     private var armedPlan: PlannedTransition?
     /// A hand-over is armed exactly when a plan is held for it.
     private var transitionArmed: Bool { armedPlan != nil }
     /// The complete local file of the track now playing, when there is one —
-    /// the outgoing source a stem pre-render reads.
+    /// the outgoing source a transition pre-render reads.
     private var currentLocalURL: URL? { didSet { publishCacheFilesInUse() } }
     /// The cached file each deck was last loaded with (absent: nothing, or a
     /// stream). Kept for `EngineAudioCache`'s eviction, which must not delete a file
@@ -261,24 +255,16 @@ final class PlayerService: ObservableObject {
     /// on every seek or cue. A deck the engine retired on its own may linger
     /// here until its next load, which only ever protects one file too many.
     private var deckFiles: [Deck: URL] = [:] { didSet { publishCacheFilesInUse() } }
-    /// One parse of the outgoing track's `.lrc`, kept for as long as that file
-    /// stays the outgoing one. `Audition.Lyrics.timing(for:)` reads and parses
-    /// the sidecar off disk, and the 0.2 s progress tick asks for it on every
-    /// AutoMix rank step — so without this the same file is re-read five times
-    /// a second.
-    private var outgoingLyricCache: (url: URL, timing: TransitionPlanner.PlanContext.LyricTiming?)?
+    /// Cache the lyric line ends while this file remains the outgoing track.
+    /// Queue ranking reads them on each progress tick.
+    private var outgoingLyricCache: (url: URL, lineEnds: [TimeInterval])?
 
-    /// `Audition.Lyrics.timing(for:)` with that one-entry cache in front. Nil
-    /// for a track with no sidecar — which is also exactly when
-    /// `Audition.Lyrics.lineEnds(for:)` returns an empty grid, so
-    /// `outgoingLyricTiming(for:)?.lineEnds ?? []` is the same value it gave.
-    private func outgoingLyricTiming(for url: URL?)
-        -> TransitionPlanner.PlanContext.LyricTiming? {
-        guard let url else { return nil }
-        if let cached = outgoingLyricCache, cached.url == url { return cached.timing }
-        let timing = Audition.Lyrics.timing(for: url)
-        outgoingLyricCache = (url, timing)
-        return timing
+    private func outgoingLyricLineEnds(for url: URL?) -> [TimeInterval] {
+        guard let url else { return [] }
+        if let cached = outgoingLyricCache, cached.url == url { return cached.lineEnds }
+        let lineEnds = Audition.Lyrics.lineEnds(for: url)
+        outgoingLyricCache = (url, lineEnds)
+        return lineEnds
     }
     /// Beat/energy analysis of the track now playing, once its full file is
     /// on disk. Feeds the outgoing side of TransitionPlanner.
@@ -394,7 +380,7 @@ final class PlayerService: ObservableObject {
                 if self.lastPlaybackCheckpoint.duration(to: .now) >= .seconds(20) {
                     self.persistState()
                 }
-                self.updateStemPrerender()
+                self.updateTransitionPrerender()
             }
         }
         // .common keeps the clock ticking through menu tracking and window
@@ -532,7 +518,7 @@ final class PlayerService: ObservableObject {
                 // Whatever was being rendered was cut for the seam that just
                 // stopped existing; there is no runway left to finish it in
                 // and its audio is now the wrong audio.
-                cancelStemPrerender()
+                cancelTransitionPrerender()
                 return
             }
         }
@@ -579,7 +565,7 @@ final class PlayerService: ObservableObject {
         // crossfade or to gapless instead of firing it on the spot — a seek
         // into the transition window must never start the next song.
         //
-        // The stem render in flight is *parked*, not killed. A seek moves the
+        // The transition render in flight is *parked*, not killed. A seek moves the
         // playhead, not the seam: the panel's own jump-to-seam moves it towards
         // the very hand-over being rendered, and re-planning from the new
         // position almost always lands on the identical signature. Killing the
@@ -606,7 +592,7 @@ final class PlayerService: ObservableObject {
     }
 
     /// Whether the AutoMix order can do anything at all. It picks by planning,
-    /// and planning needs analyses — which iOS and an AutoMix-off player never
+    /// and planning needs analyses — which an AutoMix-off player never
     /// compute — and it downloads candidates the listener did not ask for,
     /// which is its own opt-in. The shuffle button cycles through two states
     /// rather than three when this is false.
@@ -900,7 +886,7 @@ final class PlayerService: ObservableObject {
     /// Void an armed hand-over, keeping the prefetched file/analysis around
     /// so the transition can be re-armed (post-seek) without re-downloading.
     ///
-    /// `keepingPrerender` parks the stem render instead of killing it, for the
+    /// `keepingPrerender` parks the transition render instead of killing it, for the
     /// one caller whose disarm/re-arm pair is not a change of mind: a seek.
     /// See `reconcileParkedPrerender` — nothing is *kept* on the strength of
     /// this flag alone, only held long enough for the re-armed plan to be
@@ -912,19 +898,19 @@ final class PlayerService: ObservableObject {
         AutoMixDebugModel.shared.setPlan(nil)
         AutoMixDebugModel.shared.setScoreRefusal(nil)
         // Whatever the pre-render was aiming at is void: a re-arm re-derives
-        // the plan, and `updateStemPrerender` starts again from there.
+        // the plan, and `updateTransitionPrerender` starts again from there.
         //
         // Unless the caller is only *re-deriving* this same seam — see
         // `keepingPrerender`, and `reconcileParkedPrerender` for who decides.
-        if keepingPrerender, stemPrerenderState.signature != nil {
-            parkedPrerender = stemPrerenderState
+        if keepingPrerender, transitionPrerenderState.signature != nil {
+            parkedPrerender = transitionPrerenderState
         } else {
-            cancelStemPrerender()
+            cancelTransitionPrerender()
         }
         // The stability clock too, and for a reason worth naming: a seek moves
         // the playhead this clock is read on, so a `since` taken before it is
         // not a duration afterwards. A re-arm restarts it honestly.
-        stemPrerenderStable = nil
+        transitionPrerenderStable = nil
     }
 
     private func startPlaying(_ track: Track,
@@ -1226,7 +1212,7 @@ final class PlayerService: ObservableObject {
                 // The complete file just landed — which is exactly what
                 // `currentLocalURL` means. The deck keeps playing its stream
                 // source (so `hasLocalFile` stays honest), but everything that
-                // reads the *file* — the stem pre-render's outgoing side, the
+                // reads the *file* — the transition pre-render's outgoing side, the
                 // pick's lyric line-ends, and the queue-order politeness gate —
                 // can start now instead of waiting for the next track.
                 self.currentLocalURL = final
@@ -1249,7 +1235,7 @@ final class PlayerService: ObservableObject {
         case .transitionCompleted:
             armedPlan = nil
             AutoMixDebugModel.shared.setPlan(nil)
-            cancelStemPrerender()
+            cancelTransitionPrerender()
             schedulePrefetch()
         }
     }
@@ -1416,7 +1402,7 @@ final class PlayerService: ObservableObject {
 
     /// Load the prefetched track on the idle deck and pre-arm the hand-over.
     /// Tell the cache which of its files playback has open: whatever each
-    /// deck holds, the current track's complete file (seeks, stem
+    /// deck holds, the current track's complete file (seeks, transition
     /// pre-renders and lyric reads open it by path, even while the deck plays
     /// the stream it was mirrored from) and the prefetched next one.
     private func publishCacheFilesInUse() {
@@ -1587,20 +1573,11 @@ final class PlayerService: ObservableObject {
                                      outPoint: max(duration - fade, duration * 0.6),
                                      inPoint: 0))
         }
-        // Stem availability follows the process: the launcher installs a
-        // separator only when the model and metallib are actually usable
-        // (macOS, checkpoint on disk). Without one, `.none` keeps this the
-        // byte-identical whole-mix path.
-        // …and only when the listener has agreed to pay for it: the stems
-        // sub-setting is consent for the GPU, and `.none` here is what makes a
-        // refusal silent rather than a plan that cannot be rendered.
-        let stems: StemAvailability = stemSeparationAllowed ? .ready : .none
         // Lyric line ends for the outgoing track, so the planner can pull its
         // out point back onto a full stop instead of cutting mid-line. The
         // `.lrc` sits next to the cached audio (written by `LyricsSidecar` on
         // the prefetch path), so this is a few-KB synchronous read on the main
-        // actor — the same read `VocalExchange.compile` already does at
-        // plan-adjacent time, run once per seam, minutes apart. Off the main
+        // actor, once per seam. Off the main
         // actor it would have to be awaited, which would turn arming into an
         // async step for no measurable gain. Missing file → empty → the
         // pre-structure decision, unchanged.
@@ -1622,22 +1599,15 @@ final class PlayerService: ObservableObject {
                 index + 1 < queue.count && queue[index + 1].id == next.track.id
             }
         } ?? false
-        // Both lyric clocks, for the same reason and off the same sidecars: the
-        // vocal-exchange aim needs to know where the *incoming* track starts
-        // singing, or it will enter deck B on top of a verse and mute the first
-        // lines of it. Nil where there is no `.lrc`, which is the decision this
-        // path made before the rule existed.
         let context = TransitionPlanner.PlanContext(
-            outgoingLyricLineEnds: outgoingLyricTiming(for: currentLocalURL)?.lineEnds ?? [],
-            outgoingLyricTiming: outgoingLyricTiming(for: currentLocalURL),
-            incomingLyricTiming: Audition.Lyrics.timing(for: next.localURL),
+            outgoingLyricLineEnds: outgoingLyricLineEnds(for: currentLocalURL),
             sameAlbum: outgoingAlbum != 0 && outgoingAlbum == incomingAlbum,
             listedAdjacent: listedAdjacent)
         let config = plannerConfig
         guard AutoMixDebugModel.shared.overrides.forceBeatMatch else {
             AutoMixDebugModel.shared.setForceNote(nil)
             return TransitionPlanner.plan(outgoing: currentAnalysis, incoming: next.analysis,
-                                          stems: stems, config: config, context: context)
+                                          config: config, context: context)
         }
         // Forced: take the ledger too. Under the override every admission gate
         // abstains, so whatever `blocker` names is one of the physical
@@ -1647,7 +1617,7 @@ final class PlayerService: ObservableObject {
         // and only on a seam somebody asked to force.
         var trace: PlanTrace? = PlanTrace()
         let planned = TransitionPlanner.plan(
-            outgoing: currentAnalysis, incoming: next.analysis, stems: stems,
+            outgoing: currentAnalysis, incoming: next.analysis,
             config: config, context: context, trace: &trace)
         if case .beatMatched = planned.plan {
             AutoMixDebugModel.shared.setForceNote(nil)
@@ -1659,546 +1629,145 @@ final class PlayerService: ObservableObject {
         return planned
     }
 
-    // MARK: - Stem pre-render
+    // MARK: - Transition pre-render
 
-    /// How far ahead of the splice the pre-render is started, and the point at
-    /// which an unfinished one is abandoned.
-    ///
-    /// A separation pass runs at roughly realtime per side, so a 15 s hand-over
-    /// wanting both sides is ~30 s of work plus a second of rendering: a minute
-    /// of lead is comfortable, and the guard is there so a machine that is
-    /// busier than that never delays a hand-over — it simply gets the live one.
-    // `nonisolated` for the same reason the runway constants below are: the
-    // lead window is derived from the runway and both are read from the pure
-    // helpers the tests drive directly.
-    nonisolated static let stemPrerenderLead: TimeInterval = 60
-    nonisolated private static let stemPrerenderGuard: TimeInterval = 5
+    // Scores need one offline render pass; reserve a fixed CPU render budget.
+    nonisolated static let transitionPrerenderLead: TimeInterval = 60
+    nonisolated private static let transitionPrerenderGuard: TimeInterval = 5
+    nonisolated static let transitionPrerenderLeadSlack: TimeInterval = 15
+    nonisolated static let transitionPrerenderSettleSeconds: TimeInterval = 12
+    nonisolated static let transitionPrerenderRunway: TimeInterval = 15
 
-    /// Cushion between "the work fits" and "start it now".
-    ///
-    /// The lead window's job is to open *before* the work stops fitting, and a
-    /// window that opens exactly at `remaining == runway` opens for a single
-    /// tick — the progress timer would have to land on it. Fifteen seconds is
-    /// the same order as `stemPrerenderMargin` and gives the window a couple of
-    /// hundred ticks to fire in.
-    nonisolated static let stemPrerenderLeadSlack: TimeInterval = 15
-
-    /// **How far ahead of the splice this particular seam's window opens.**
-    ///
-    /// The flat 60 s was measured in the two-lane era, when the most expensive
-    /// seam anyone could arm was a 15 s overlap on both decks — 45 s of runway,
-    /// comfortably inside it. It has since become the single number that
-    /// decides *whether a long render can ever start at all*, and for a seam
-    /// whose runway exceeds it the answer is no: `remaining` inside a 60 s
-    /// window is by definition below a 74 s runway, so the feasibility guard
-    /// refuses every tick of it and the only surviving start path is the 12 s
-    /// stability clock, which a deadline-committed pick spends its whole life
-    /// resetting. That is the field sample: `refused — not enough runway
-    /// (60.0s left, 74.1s needed for a 29.6s overlap)`.
-    ///
-    /// So the window is derived from the work rather than fixed: a seam that
-    /// needs 74.1 s gets a window that opens at 89.1 s, and starting inside it
-    /// is what the `.lead` trigger has always meant. The classic 60 s is the
-    /// floor, so nothing that used to start early now starts later.
-    ///
-    /// Bounded, deliberately, by the decision lead the pick deadline works to:
-    /// the widest render anyone can arm is `TransitionSegmentRenderer.maxOverlap`
-    /// at two sides (or one four-lane side, which costs the same), so this is
-    /// never more than `2 x 30 + 15 + 15` = 90 s — inside the 120 s at which
-    /// `updateAutoMixPick` commits a winner. The pick deadline therefore does
-    /// not have to move for this, which is the whole reason it is not moving.
-    nonisolated static func stemPrerenderLeadWindow(runway: TimeInterval) -> TimeInterval {
-        max(stemPrerenderLead, runway + stemPrerenderLeadSlack)
+    nonisolated static func transitionPrerenderLeadWindow(runway: TimeInterval) -> TimeInterval {
+        max(transitionPrerenderLead, runway + transitionPrerenderLeadSlack)
     }
 
-    /// **How long an armed plan must hold still before its pre-render may start
-    /// early**, ahead of the lead window entirely.
-    ///
-    /// The lead window was a proxy for "the plan has stopped moving": start too
-    /// soon and a re-plan throws the render away. Six hours of field journal say
-    /// the proxy is far too expensive. 45 seams produced 130 `plan armed` lines
-    /// — ~2.9 arms per seam — and **zero** of them were a genuine "plan
-    /// replaced": the churn is the late analysis and the deadline-committed pick
-    /// landing, all of it within seconds of the first arm and none of it after
-    /// that. Meanwhile only 5 of the 45 seams got their spliced segment; the
-    /// rest ran out of runway waiting for a window that opens 60 s before a
-    /// splice a 30 s overlap needs 75 s for.
-    ///
-    /// So the trigger is stability, not proximity: twelve seconds is comfortably
-    /// past where the churn lives and still leaves minutes of runway on a
-    /// typical track. The feasibility check is unchanged and still has the last
-    /// word — starting early buys runway, it does not excuse not having any —
-    /// and a seam that moves afterwards cancels and re-renders exactly as it did.
-    nonisolated static let stemPrerenderSettleSeconds: TimeInterval = 12
-
-    /// Why a pre-render started, for the journal.
-    enum StemPrerenderTrigger: String {
-        /// The armed plan held still long enough to be believed, with more than
-        /// the lead window still to go. The common case after this change.
-        case settled
-        /// The classic: the splice came inside the lead window.
-        case lead
-        /// Inside the lead window and short of it — the seam moved under a
-        /// finished render, which is what a deadline-committed pick does.
-        case late
+    enum TransitionPrerenderTrigger: String {
+        case settled, lead, late
     }
 
-    /// Whether this tick starts the pre-render, and what to call the reason.
-    ///
-    /// Pure, and static, so the window can be tested without a player: the
-    /// caller supplies the three numbers and gets back the journal's word for
-    /// what it is about to do, or nil for "not yet, come back next tick".
-    nonisolated static func stemPrerenderTrigger(
+    nonisolated static func transitionPrerenderTrigger(
         remaining: TimeInterval, stableFor: TimeInterval, runway: TimeInterval
-    ) -> StemPrerenderTrigger? {
-        // Feasibility first, and it is never waived. A render that cannot
-        // finish is Metal time spent on audio nobody will hear.
-        guard remaining >= runway, remaining > stemPrerenderGuard else { return nil }
-        // The window this seam's own work asks for, not the flat one — see
-        // `stemPrerenderLeadWindow`. Inside it the stability clock is not
-        // consulted at all, which is what guarantees an expensive seam a start:
-        // the window opens while the work still fits, by construction.
-        let lead = stemPrerenderLeadWindow(runway: runway)
-        guard remaining > lead else {
-            return remaining < lead - 2 ? .late : .lead
-        }
-        return stableFor >= stemPrerenderSettleSeconds ? .settled : nil
+    ) -> TransitionPrerenderTrigger? {
+        guard remaining >= runway, remaining > transitionPrerenderGuard else { return nil }
+        let lead = transitionPrerenderLeadWindow(runway: runway)
+        guard remaining > lead else { return remaining < lead - 2 ? .late : .lead }
+        return stableFor >= transitionPrerenderSettleSeconds ? .settled : nil
     }
 
-    /// **Whether a four-lane render has to be taken down to two to fit.**
-    ///
-    /// The bill for a four-lane `bedIntro` is twice a two-lane one
-    /// (`stemPrerenderFourLaneFactor`), so there is a band of runway — 44.6 s to
-    /// 74.1 s for the field sample's 29.6 s overlap — where the seam can be
-    /// rendered with the bed whole but not with the bed split three ways.
-    ///
-    /// Before this the band was simply refused, which made installing the
-    /// four-stem checkpoint *worse* than not having it: the same seam on a
-    /// machine with only the vocals model rendered a two-lane bed happily, and
-    /// the machine with the better model got the live blend. A gesture heard in
-    /// its two-lane form is the degradation `StemTechniqueLayer` already
-    /// implements and already announces; not hearing it at all is not.
-    ///
-    /// Only feasibility decides this. Outside the lead window the trigger is
-    /// still waiting for the plan to hold still, and waiting is not a reason to
-    /// spend fewer lanes than the seam can afford.
-    nonisolated static func stemPrerenderDegradesToTwoLanes(
-        remaining: TimeInterval, fourLaneRunway: TimeInterval, twoLaneRunway: TimeInterval
-    ) -> Bool {
-        remaining < fourLaneRunway && remaining >= twoLaneRunway
-    }
-
-    /// How many lanes a started render is getting, in the journal's and the
-    /// panel's shared vocabulary. `"0"` is a whole-mix score: no separator
-    /// consulted on either side.
-    nonisolated static func stemPrerenderLaneTag(
-        separates: Bool, fourLane: Bool, degraded: Bool
-    ) -> String {
-        guard separates else { return "0" }
-        guard degraded else { return fourLane ? "4" : "2" }
-        return "2 (degraded from 4: runway)"
-    }
-
-    /// **Whether a refusal recorded earlier still stands.**
-    ///
-    /// A refusal is a statement about the clock — *this much left, that much
-    /// needed* — and not about the seam, so it has to expire when the clock
-    /// changes its mind. `remaining` normally only shrinks, which is why this
-    /// was written as a terminal state, but two ordinary things grow it: a seek
-    /// backwards (the parked render comes back onto the very same signature,
-    /// now with minutes in front of it) and a re-plan that moves the splice
-    /// later without moving the three numbers a `Signature` compares.
-    ///
-    /// The field sample shows exactly that shape — `refused … (60.0s left,
-    /// 74.1s needed)` sitting on the panel next to a countdown reading T−01:45.
-    /// 105 s is ample for a 74.1 s render, and the seam was refused anyway,
-    /// because the refusal had been filed as "this seam has had its one
-    /// attempt". It has not: it had one attempt *at 60 s*.
-    nonisolated static func stemPrerenderRefusalStands(
+    nonisolated static func transitionPrerenderRefusalStands(
         remaining: TimeInterval, runway: TimeInterval
     ) -> Bool {
         remaining < runway
     }
 
-    /// Separation runs at roughly realtime **per side**, and a segment wants
-    /// both sides of the seam.
-    // `nonisolated` because `stemPrerenderRunway` is, and a default argument is
-    // evaluated at the call site: leaving these main-actor-isolated makes the
-    // new `sides:` default an actor hop the compiler has to complain about.
-    nonisolated private static let stemPrerenderSidesPerSeam: Double = 2
-    /// Slack on top of the separation estimate: the render pull loop, the file
-    /// writes, and a machine that is doing other things at the same time.
-    nonisolated private static let stemPrerenderMargin: TimeInterval = 15
-
-    /// What a side costs when it is split four ways instead of two.
-    ///
-    /// The flat `1 x overlap` per side above was measured against the vocals
-    /// checkpoint, which runs a 12 s window in 5.5 s on an M4 — comfortably
-    /// inside its own budget. The four-stem checkpoint is a 131 M-parameter
-    /// model against a 34 M one and takes **21.7 s** for the same window, which
-    /// is 1.8x the term this formula charges rather than 0.46x of it. Charging
-    /// it twice is the honest reading, rounded up, and it is what stops a
-    /// four-lane bed from starting a render that then gets abandoned at the
-    /// guard with the Metal time already spent.
-    nonisolated static let stemPrerenderFourLaneFactor: Double = 2
-
-    /// How much runway one seam's pre-render actually needs.
-    ///
-    /// This is the arithmetic that was hiding inside the flat 60 s lead — "a
-    /// 15 s hand-over wanting both sides is ~30 s of work plus a second of
-    /// rendering" — pulled out and made **per-seam**, so a seam that moves
-    /// underneath a finished render can be judged on whether the re-render
-    /// *fits* rather than on whether it is early.
-    ///
-    /// That distinction is the whole fix. The old code had one number doing two
-    /// jobs: "not yet" and "no longer possible". A deadline-committed pick
-    /// arrives late by construction — the winner still has to be re-downloaded
-    /// at playback quality, re-analyzed and re-planned, which moves the seam —
-    /// and the re-render was then refused for being late even when there was
-    /// ample time to do it. A 16 s overlap needs 47 s; being handed 49 s is not
-    /// a problem, and now it is not treated as one.
-    ///
-    /// `separatesStems` false is a **score-only** segment: whole-mix gain lanes,
-    /// no separator consulted on either side (`WholeMixLaneLayer`). The
-    /// separation term is then not small, it is *absent* — what is left is one
-    /// render pass, and the margin already covers that with room to spare. This
-    /// is why a cut-on-one costs the runway a 30 s overlap used to be refused
-    /// for and a `.vocalExchange` still does.
-    ///
-    /// `sides` is how many decks get separated, and P4 gave it a second value.
-    /// A stem technique rewrites the outgoing deck and, for a four-lane
-    /// envelope, the incoming one too — two passes, which is the flat 2 this
-    /// has always assumed. A score's `bedIntro` splits the **incoming deck
-    /// only**: the bed is the incoming track minus its singer and the outgoing
-    /// track is not touched at all. So it pays one pass, not two, and a 16 s
-    /// hand-over that would need 47 s of runway with stems on both sides needs
-    /// 31 s with a bed — which is what keeps the one stem-bearing gesture
-    /// inside the 120 s decision lead the predev budgets for (§2.2).
-    nonisolated static func stemPrerenderRunway(
-        overlapDuration: TimeInterval, separatesStems: Bool = true,
-        sides: Double = stemPrerenderSidesPerSeam,
-        fourLane: Bool = false
-    ) -> TimeInterval {
-        guard separatesStems else { return stemPrerenderMargin }
-        let perSide = fourLane ? stemPrerenderFourLaneFactor : 1
-        return max(0, sides) * perSide * max(0, overlapDuration) + stemPrerenderMargin
-    }
-
-    /// Internal rather than private only so the reuse rule below can be tested
-    /// on both of its arms: what "already have this one" means is exactly that
-    /// a finished render and an in-flight one answer `signature` alike.
-    enum StemPrerenderState {
+    enum TransitionPrerenderState {
         case idle
-        /// A job is running for this seam.
         case running(TransitionSegment.Signature)
-        /// This seam has had its one attempt — finished, failed or abandoned.
-        /// Never retried: the lead time is gone either way.
         case settled(TransitionSegment.Signature)
-        /// Never started, because the work did not fit in what was left. Held
-        /// with the runway it was judged against, because that judgement is
-        /// only good for as long as `remaining` keeps shrinking — see
-        /// `stemPrerenderRefusalStands`.
         case refused(TransitionSegment.Signature, runway: TimeInterval)
 
         var signature: TransitionSegment.Signature? {
             switch self {
             case .idle: return nil
-            case .running(let s), .settled(let s): return s
-            case .refused(let s, _): return s
+            case .running(let signature), .settled(let signature): return signature
+            case .refused(let signature, _): return signature
             }
         }
     }
 
-    /// **Whether a re-arm throws away the render already held for this seam.**
-    ///
-    /// Only a signature that actually *differs* does. An identical one is not a
-    /// new seam — the splice, the entry and the overlap are the three things a
-    /// segment is rendered against, and if none of them moved then the audio in
-    /// hand is the audio wanted, whether it is finished (`.settled`) or still
-    /// being made (`.running`). The field journal's 2.9 arms per seam are almost
-    /// entirely this case, and discarding on any of them would have thrown away
-    /// work that was already correct.
-    static func stemPrerenderDiscards(
-        held: StemPrerenderState, armed: TransitionSegment.Signature
+    /// A re-arm only discards audio when its splice geometry actually moved.
+    static func transitionPrerenderDiscards(
+        held: TransitionPrerenderState, armed: TransitionSegment.Signature
     ) -> Bool {
         guard let held = held.signature else { return false }
         return held != armed
     }
 
-    /// A pre-render's stop switch.
-    ///
-    /// `Task.cancel` alone would only orphan the job: the render is a
-    /// synchronous pull loop inside a detached task and a separation pass is
-    /// seconds of Metal work. So cancellation is also checked where it can
-    /// actually be acted on — at each separation boundary, which is where all
-    /// the time goes.
-    private final class PrerenderCancel: @unchecked Sendable {
-        private let lock = NSLock()
-        private var cancelled = false
-        func cancel() { lock.lock(); cancelled = true; lock.unlock() }
-        var isCancelled: Bool {
-            lock.lock(); defer { lock.unlock() }
-            return cancelled
-        }
-    }
+    private var transitionPrerenderTask: Task<Void, Never>?
+    private var transitionPrerenderState: TransitionPrerenderState = .idle
+    private var transitionPrerenderStable: (signature: TransitionSegment.Signature,
+                                          since: TimeInterval)?
 
-    private var stemPrerenderTask: Task<Void, Never>?
-    private var stemPrerenderCancel: PrerenderCancel?
-    private var stemPrerenderState: StemPrerenderState = .idle
-
-    /// The signature the armed plan has been carrying, and the playhead reading
-    /// at which it first appeared — the clock `stemPrerenderTrigger` reads.
-    ///
-    /// Measured in playback seconds rather than wall-clock on purpose: it is the
-    /// same clock `remaining` is measured against, so "held still for 12 s" and
-    /// "60 s of lead" are the same kind of second, and a paused player does not
-    /// accrue confidence in a seam nobody is approaching.
-    private var stemPrerenderStable: (signature: TransitionSegment.Signature,
-                                      since: TimeInterval)?
-
-    /// Polled from the progress timer: start, abandon or ignore the pre-render
-    /// of the armed hand-over. Cheap — a few comparisons — until the moment it
-    /// starts the one background job it will ever run for a given seam.
-    private func updateStemPrerender() {
-        // Debug A/B: skip the render entirely so the seam is carried by the
-        // live two-deck path, which is the approximation a stem hand-over
-        // exists to beat. `setOverrides` tears down and re-arms when this is
-        // switched on, so a segment armed a moment ago is already gone.
+    private func updateTransitionPrerender() {
         if AutoMixDebugModel.shared.overrides.forceLivePath {
-            AutoMixDebugModel.shared.setPrerender(
-                .refused("force live path (debug override)"))
+            AutoMixDebugModel.shared.setPrerender(.refused("force live path (debug override)"))
             return
         }
         guard transitionArmed, let planned = armedPlan else { return }
-        // A hand-over with neither a stem technique nor a score has nothing to
-        // pre-render, and the row must say that rather than keep whatever the
-        // last seam left there. This is where a refused score lands — the plan
-        // it leaves behind is a plain blend, and a plain blend is not a failed
-        // render. The reason itself has its own row in the Plan group.
-        guard planned.style.stemTechnique != nil || planned.style.score != nil else {
+        guard planned.style.score != nil else {
             AutoMixDebugModel.shared.setPrerender(.notNeeded)
             return
         }
         guard let signature = TransitionSegment.Signature(plan: planned.plan),
-              let outgoingURL = currentLocalURL, let next = prefetchedNext
-        else { return }
-        // A stem technique needs a separator; four of the five gestures in the
-        // score library do not touch one. That asymmetry is the whole cost
-        // story of the score model — a score-only segment is a render and
-        // nothing else — so it decides both the admission above and the runway
-        // below. The fifth gesture, `bedIntro`, is the exception and says so
-        // itself: `RunwayClass` is a property of the score, read here at arming
-        // time and again by the compiler, so the bill and the work cannot
-        // disagree.
-        let scoreSeparates = planned.style.score?.runwayClass == .incomingStems
-        let separatesStems = planned.style.stemTechnique != nil || scoreSeparates
-        // One deck for a bed, two for a stem technique that may write all four
-        // lanes.
-        let separatedSides = planned.style.stemTechnique != nil
-            ? Self.stemPrerenderSidesPerSeam : 1
-        // A score that asks for the incoming track's stems (`bedIntro`) is the
-        // one separating job the plan gate above cannot pre-empt, because the
-        // score is chosen after `stems`. Without consent or without a provider
-        // it is simply not rendered and the live blend carries the seam.
-        guard !separatesStems || stemSeparationAllowed else { return }
-
-        // A re-plan (a late analysis, a degraded seam after a seek) moves the
-        // splice; whatever was rendered for the old one is the wrong audio.
-        // A re-plan that lands on the *same* signature is not a move at all and
-        // is deliberately not handled here — see `noteArmedSignature`.
-        if Self.stemPrerenderDiscards(held: stemPrerenderState, armed: signature) {
-            cancelStemPrerender()
+              let outgoingURL = currentLocalURL, let next = prefetchedNext else { return }
+        if Self.transitionPrerenderDiscards(held: transitionPrerenderState, armed: signature) {
+            cancelTransitionPrerender()
         }
         let splice = signature.outPoint - TransitionSegmentRenderer.handoff
-        // The live playhead, not the published `progress`: that one is only
-        // republished when the scrubber would visibly move, so it can sit up to
-        // half a second behind — half a second of runway this decision spends.
         let remaining = splice - livePlaybackTime
-
-        // A refusal expires when the clock it was filed against does. The seam
-        // has not moved (a moved one was discarded above) — the playhead has,
-        // backwards, or the splice has slid later inside the millisecond slack
-        // a `Signature` compares on. Either way the arithmetic that said no is
-        // no longer the arithmetic in front of us, so the seam goes back to
-        // `.idle` and this very tick reconsiders it.
-        if case .refused(_, let refusedRunway) = stemPrerenderState,
-           !Self.stemPrerenderRefusalStands(remaining: remaining, runway: refusedRunway) {
-            stemPrerenderState = .idle
+        let runway = Self.transitionPrerenderRunway
+        // A backwards seek can make a previously refused render feasible.
+        if case .refused(_, let refusedRunway) = transitionPrerenderState,
+           !Self.transitionPrerenderRefusalStands(remaining: remaining, runway: refusedRunway) {
+            transitionPrerenderState = .idle
             AutoMixDebugModel.shared.setPrerender(.idle)
-            PlaybackJournal.note(String(
-                format: "prerender refusal lifted (%.1fs left now, %.1fs needed)",
-                remaining, refusedRunway))
         }
-
-        // Whether this render gets the four-lane separator. Decided in the
-        // `.idle` branch below, read by the provider hand-out at the bottom.
-        var fourLaneRender = false
-        var laneDegraded = false
-
-        switch stemPrerenderState {
+        switch transitionPrerenderState {
         case .settled, .refused:
             return
         case .running:
-            // Out of runway: drop the job and let the live path have the
-            // hand-over. The engine has never been told about this segment, so
-            // there is nothing to undo there.
-            if remaining < Self.stemPrerenderGuard {
-                stemPrerenderCancel?.cancel()
-                stemPrerenderTask?.cancel()
-                stemPrerenderTask = nil
-                stemPrerenderState = .settled(signature)
+            if remaining < Self.transitionPrerenderGuard {
+                transitionPrerenderTask?.cancel()
+                transitionPrerenderTask = nil
+                transitionPrerenderState = .settled(signature)
                 AutoMixDebugModel.shared.setPrerender(
                     .abandoned(String(format: "out of runway (%.1fs left)", remaining)))
             }
             return
         case .idle:
-            // A `bedIntro` on a machine with the four-stem checkpoint is the
-            // same gesture at roughly twice the Metal time, so it is billed —
-            // and, when the bill is too big, *shopped down*. Both prices are
-            // computed here because the choice between them is a choice about
-            // runway and nothing else.
-            let wantsFourLanes = scoreSeparates && StemSeparation.hasFullSeparation
-            func runway(fourLane: Bool) -> TimeInterval {
-                Self.stemPrerenderRunway(
-                    overlapDuration: signature.overlapDuration,
-                    separatesStems: separatesStems, sides: separatedSides,
-                    fourLane: fourLane)
-            }
-            let fourLaneRunway = runway(fourLane: wantsFourLanes)
-            let twoLaneRunway = runway(fourLane: false)
-            laneDegraded = wantsFourLanes && Self.stemPrerenderDegradesToTwoLanes(
-                remaining: remaining, fourLaneRunway: fourLaneRunway,
-                twoLaneRunway: twoLaneRunway)
-            // Not `wantsFourLanes && !laneDegraded`: the only thing that
-            // withholds the four-lane separator from a render that could have
-            // reached it is the degradation decided a line above. Everything
-            // else keeps the machine's own answer, which is what the panel has
-            // always reported.
-            fourLaneRender = StemSeparation.hasFullSeparation && !laneDegraded
-            let runway = laneDegraded ? twoLaneRunway : fourLaneRunway
-
-            let stableFor = stemPrerenderStable.map { livePlaybackTime - $0.since } ?? 0
-            guard let trigger = Self.stemPrerenderTrigger(
+            let stableFor = transitionPrerenderStable.map { livePlaybackTime - $0.since } ?? 0
+            guard let trigger = Self.transitionPrerenderTrigger(
                 remaining: remaining, stableFor: stableFor, runway: runway) else {
-                // Two very different "no"s, and only one of them stops the next
-                // tick from asking. Outside the lead window this is "not yet" —
-                // the plan is still churning — and nothing is recorded. Inside
-                // it the work genuinely does not fit in what is left, and by
-                // here that is true of the cheapest lane count this seam has,
-                // so say so with the numbers and stand down. Standing down is
-                // not the same as giving up: the refusal is filed against the
-                // clock that produced it and lifts if the clock changes.
-                guard remaining <= Self.stemPrerenderLeadWindow(runway: runway) else { return }
-                stemPrerenderState = .refused(signature, runway: runway)
-                let why = String(
-                    format: "not enough runway (%.1fs left, %.1fs needed for a %.1fs overlap)",
-                    remaining, runway, signature.overlapDuration)
-                AutoMixDebugModel.shared.setPrerender(.refused(why))
-                PlaybackJournal.note("prerender refused \(why)")
+                guard remaining <= Self.transitionPrerenderLeadWindow(runway: runway) else { return }
+                transitionPrerenderState = .refused(signature, runway: runway)
+                let reason = String(format: "not enough runway (%.1fs left, %.1fs needed)",
+                                    remaining, runway)
+                AutoMixDebugModel.shared.setPrerender(.refused(reason))
+                PlaybackJournal.note("prerender refused \(reason)")
                 return
             }
             PlaybackJournal.note(String(
-                format: "prerender start trigger=%@ remaining=%.1fs runway=%.1fs "
-                    + "overlap=%.1fs stable=%.1fs lanes=%@",
-                trigger.rawValue, remaining, runway, signature.overlapDuration, stableFor,
-                // Which separator this seam actually gets — not which one the
-                // machine owns. A `bedIntro` sounds materially different across
-                // the two, and a seam that shopped four lanes down to two has
-                // to say that here rather than leave the reading of a `lanes=2`
-                // line to depend on what was installed that day.
-                Self.stemPrerenderLaneTag(separates: separatesStems,
-                                          fourLane: fourLaneRender,
-                                          degraded: laneDegraded)))
+                format: "prerender start trigger=%@ remaining=%.1fs runway=%.1fs overlap=%.1fs",
+                trigger.rawValue, remaining, runway, signature.overlapDuration))
         }
-
-        // A whole-mix score never calls this, so a machine with no separator
-        // installed still gets one: the provider it is handed throws if the
-        // render ever asks, which for a whole-mix score it cannot. A `bedIntro`
-        // score *does* ask, which is why it is counted in `separatesStems`
-        // above and refused here alongside the stem techniques.
-        let provider: VocalStemProvider = StemSeparation.provider
-            ?? { _ in throw StemTechniqueLayer.StemError.noProvider }
-        if separatesStems, StemSeparation.provider == nil { return }
         let request = TransitionSegmentRenderer.Request(
             planned: planned, outgoingURL: outgoingURL, incomingURL: next.localURL,
             outgoingTrimDB: loudnessTrimDB(for: currentAnalysis),
             incomingTrimDB: loudnessTrimDB(for: next.analysis),
             masterLimiterActive: AutoMixDebugModel.shared.overrides.enableMasterLimiter,
-            outgoingAnalysis: currentAnalysis, incomingAnalysis: next.analysis,
-            config: plannerConfig)
+            outgoingAnalysis: currentAnalysis, incomingAnalysis: next.analysis)
         let generation = resolveGeneration
-        let stop = PrerenderCancel()
-        stemPrerenderCancel = stop
-        let cancellable: VocalStemProvider = { request in
-            if stop.isCancelled { throw CancellationError() }
-            return try provider(request)
-        }
-        // Same cancellation lane for the four-lane separator: it is the same
-        // MLX runtime doing the same seconds of Metal work, and a pre-render
-        // that has run out of runway must drop both.
-        //
-        // Withheld entirely when the runway only paid for two lanes. Handing it
-        // over is the *only* thing that makes a render four-lane —
-        // `StemTechniqueLayer.apply` asks for the split when the envelope wants
-        // one and a full provider is there, and degrades to a whole bed with a
-        // note when it is not — so withholding it is exactly the two-lane
-        // render, on the path that already exists for machines without the
-        // checkpoint.
-        let cancellableFull: FullStemProvider? = fourLaneRender
-            ? StemSeparation.fullProvider.map { full in
-                { request in
-                    if stop.isCancelled { throw CancellationError() }
-                    return try full(request)
-                }
-            }
-            : nil
-        stemPrerenderState = .running(signature)
-        // The journal's `lanes=` answer, on the panel: a bedIntro over four
-        // lanes and one over two are different renders, and "rendering" alone
-        // hides which of them this seam is getting.
-        let laneTag = separatesStems
-            ? " · lanes " + Self.stemPrerenderLaneTag(
-                separates: true, fourLane: fourLaneRender, degraded: laneDegraded)
-            : " · whole-mix"
-        AutoMixDebugModel.shared.setPrerender(
-            .rendering(Self.debugSignature(signature) + laneTag))
-        stemPrerenderTask = Task { [weak self] in
-            // Separation is Metal work and rendering is a synchronous pull
-            // loop; both belong off the main actor entirely.
-            // The error is kept, not discarded. Every refusal in there already
-            // carries a sentence (`SegmentError.errorDescription`), and
-            // throwing them away was how a compile refusal, a missing separator
-            // and a genuinely empty buffer all arrived at the panel as "render
-            // produced nothing" — the one of the three that was almost never
-            // true.
+        transitionPrerenderState = .running(signature)
+        AutoMixDebugModel.shared.setPrerender(.rendering(Self.debugSignature(signature)))
+        transitionPrerenderTask = Task { [weak self] in
+            // Manual audio rendering is synchronous, so it runs off the UI actor.
             let outcome = await Task.detached(priority: .utility) {
-                Result {
-                    try TransitionSegmentRenderer.render(
-                        request, provider: cancellable, fullProvider: cancellableFull)
-                }
+                Result { try TransitionSegmentRenderer.render(request) }
             }.value
             guard let self, !Task.isCancelled, generation == self.resolveGeneration else { return }
             switch outcome {
             case .failure(let error):
-                AutoMixDebugModel.shared.setPrerender(
-                    .abandoned(error.localizedDescription))
+                AutoMixDebugModel.shared.setPrerender(.abandoned(error.localizedDescription))
             case .success(let segment):
-                // The engine rejects it if the seam moved underneath us or the
-                // playhead is already past the splice, and plays the live
-                // hand-over instead — this is a suggestion, not a command.
                 self.engine.armTransitionSegment(segment)
-                // The offer is fire-and-forget, so the outcome is asked for
-                // afterwards — but the engine now says *which* guard declined
-                // rather than leaving the panel to guess, which is how a render
-                // that finished 27 s early came to be reported as a seam that
-                // had moved. One queue hop, once per seam.
                 AutoMixDebugModel.shared.setPrerender(
                     self.engine.lastSegmentDecline.map {
                         .refused("engine declined — \($0.explanation)")
-                    } ?? .armed(Self.debugSignature(signature) + laneTag))
+                    } ?? .armed(Self.debugSignature(signature)))
             }
-            self.stemPrerenderTask = nil
-            self.stemPrerenderState = .settled(signature)
+            self.transitionPrerenderTask = nil
+            self.transitionPrerenderState = .settled(signature)
         }
     }
 
@@ -2206,7 +1775,7 @@ final class PlayerService: ObservableObject {
     /// the settle trigger reads, and say so when a re-arm landed on the very
     /// render that is already in flight or already in hand.
     ///
-    /// Reuse is structural rather than newly built — `updateStemPrerender`
+    /// Reuse is structural rather than newly built — `updateTransitionPrerender`
     /// cancels only on a signature that *differs* — but it was invisible, and
     /// invisible is how 2.9 arms per seam came to look like 2.9 reasons to be
     /// cautious. None of those arms was a real plan change; the journal now says
@@ -2214,36 +1783,34 @@ final class PlayerService: ObservableObject {
     /// kept render from a lucky one.
     private func noteArmedSignature(_ planned: PlannedTransition) {
         guard let signature = TransitionSegment.Signature(plan: planned.plan) else {
-            stemPrerenderStable = nil
+            transitionPrerenderStable = nil
             return
         }
-        guard stemPrerenderStable?.signature == signature else {
-            stemPrerenderStable = (signature, livePlaybackTime)
+        guard transitionPrerenderStable?.signature == signature else {
+            transitionPrerenderStable = (signature, livePlaybackTime)
             return
         }
-        if let held = stemPrerenderState.signature, held == signature {
+        if let held = transitionPrerenderState.signature, held == signature {
             PlaybackJournal.note(
                 "prerender reuse signature=\(Self.debugSignature(signature))")
         }
     }
 
-    private func cancelStemPrerender() {
-        stemPrerenderCancel?.cancel()
-        stemPrerenderCancel = nil
-        stemPrerenderTask?.cancel()
-        stemPrerenderTask = nil
-        stemPrerenderState = .idle
+    private func cancelTransitionPrerender() {
+        transitionPrerenderTask?.cancel()
+        transitionPrerenderTask = nil
+        transitionPrerenderState = .idle
         parkedPrerender = nil
         AutoMixDebugModel.shared.setPrerender(.idle)
     }
 
     /// A render held across a disarm/re-arm pair, waiting to find out whether
     /// the seam that comes back is the seam it was made for.
-    private var parkedPrerender: StemPrerenderState?
+    private var parkedPrerender: TransitionPrerenderState?
 
     /// **Whether a parked render survives the re-arm.**
     ///
-    /// The same rule as `stemPrerenderDiscards`, from the other side: the splice,
+    /// The same rule as `transitionPrerenderDiscards`, from the other side: the splice,
     /// the entry and the overlap are the three things a segment is rendered
     /// against, so a re-armed plan that answers `Signature` identically wants
     /// exactly the audio already in hand — finished or still being made.
@@ -2261,7 +1828,7 @@ final class PlayerService: ObservableObject {
     /// filed is a clock reading the seek has just rewritten. Carrying it across
     /// would preserve "no" as the answer to a question nobody has asked since.
     static func prerenderSurvivesReArm(
-        parked: StemPrerenderState, rearmed: TransitionSegment.Signature?
+        parked: TransitionPrerenderState, rearmed: TransitionSegment.Signature?
     ) -> Bool {
         if case .refused = parked { return false }
         guard let held = parked.signature, let rearmed else { return false }
@@ -2283,7 +1850,7 @@ final class PlayerService: ObservableObject {
         let rearmed = armedPlan.flatMap { TransitionSegment.Signature(plan: $0.plan) }
         guard Self.prerenderSurvivesReArm(parked: parked, rearmed: rearmed),
               let held = parked.signature else {
-            cancelStemPrerender()
+            cancelTransitionPrerender()
             return
         }
         PlaybackJournal.note(
@@ -2295,9 +1862,8 @@ final class PlayerService: ObservableObject {
     /// compensation setting has to reach it.
     ///
     /// The debug panel's force override is applied here rather than at the one
-    /// planning call, so the stem pre-render is built against the very config
-    /// the plan was made under. Off — always, on iOS and for anyone who has not
-    /// opened the panel — `plannerConfig` returns exactly what it always did.
+    /// planning call, so the transition pre-render is built against the very config
+    /// the plan was made under. When the panel is closed, it uses the standard config.
     private var plannerConfig: TransitionPlanner.Config {
         var config = TransitionPlanner.Config.standard
         config.loudnessCompensation = loudnessCompensationEnabled
@@ -2381,16 +1947,13 @@ final class PlayerService: ObservableObject {
                                     config: plannerConfig.loudnessConfig)
     }
 
-    /// Whether analysis results would ever be consumed: on iOS, with the
+    /// Whether analysis results would ever be consumed: with the
     /// AutoMix master off, and with every sub-setting that could read an
     /// analysis off, decoding + analyzing the whole track would be pure waste.
     ///
     /// Three consumers, so three terms. Transitions plan against two beat
     /// grids; the AutoMix order scores candidates with the same planner; the
-    /// loudness trim reads the integrated LUFS off the same analysis. Stems
-    /// are deliberately *not* a term — a stem technique only ever exists
-    /// inside a transition, so it can never be the reason an analysis is
-    /// computed.
+    /// loudness trim reads the integrated LUFS off the same analysis.
     private var analysisWanted: Bool {
         let settings = SettingsManager.shared
         return Self.analysisWanted(master: settings.automixEnabled,
@@ -2412,19 +1975,6 @@ final class PlayerService: ObservableObject {
     private var transitionsWanted: Bool {
         return SettingsManager.shared.automixEnabled
             && SettingsManager.shared.automixTransitionsEnabled
-    }
-
-    /// Whether AutoMix may spend the GPU separating stems.
-    ///
-    /// `StemSeparation.isAvailable` is the installation half of the question —
-    /// the launcher only installs a provider when a checkpoint and an
-    /// `mlx.metallib` are both on disk (`ResidentStemSeparator.isRunnable`) —
-    /// and the setting is the consent half. Without both, every gesture plays
-    /// its whole-mix form and nothing says so out loud.
-    private var stemSeparationAllowed: Bool {
-        return transitionsWanted
-            && SettingsManager.shared.automixStemsEnabled
-            && StemSeparation.isAvailable
     }
 
     /// Sidecar-cached analysis, computing (and persisting) it on a miss.
@@ -2614,9 +2164,8 @@ final class PlayerService: ObservableObject {
     }
 
     /// Write the current track's `.lrc` next to its local file once both halves
-    /// are known. The outgoing side of a seam is the one a `vocalExchange`
-    /// reads, so the *playing* track needs its sidecar too — a prefetch-only
-    /// write leaves the first track of every session wordless.
+    /// are known, so the first track of a session also has lyric line ends
+    /// available to the planner.
     ///
     /// Streaming-only playback has no file and writes nothing.
     private func persistCurrentLyricsSidecar(audio: URL? = nil) {
@@ -2710,7 +2259,7 @@ final class PlayerService: ObservableObject {
             _ = selector.pick(
                 outgoing: currentTrack, outgoingAnalysis: currentAnalysis, pool: pool,
                 plannerConfig: plannerConfig,
-                outgoingLyricLineEnds: outgoingLyricTiming(for: currentLocalURL)?.lineEnds ?? [])
+                outgoingLyricLineEnds: outgoingLyricLineEnds(for: currentLocalURL))
             Self.noteIfSlow("debug-preview", (ContinuousClock.now - start).milliseconds,
                             detail: "pool=\(pool.count)")
         }
@@ -2775,7 +2324,7 @@ final class PlayerService: ObservableObject {
             // cached files by now, so a replay is a queue rebuild and a seek.
             outgoingTrack: currentTrack,
             incomingTrack: pendingTransitionTrack,
-            gesture: armedPlan?.style.stemTechnique?.label,
+            gesture: armedPlan?.style.score?.label,
             overrides: AutoMixDebugModel.shared.overrides.badges,
             configFingerprint: AutoMixFeedbackLog.configFingerprint(plannerConfig),
             planned: planned,
@@ -2813,21 +2362,11 @@ final class PlayerService: ObservableObject {
         // that is carrying the track — it is sized from that track's peak, so
         // there is no useful constant to substitute.
         inputs.padDB = engine.deckGains(of: activeDeck).padCeilingDB
-        inputs.needsStemPrerender = planned.style.stemTechnique != nil
-            && StemSeparation.isAvailable
+        inputs.needsPrerender = planned.style.score != nil
             && !AutoMixDebugModel.shared.overrides.forceLivePath
         inputs.segmentArmed = engine.hasArmedSegment
-        // This seam's window, not the flat floor: the jump button exists to land
-        // where every stage still has room, and for a wide overlap the room the
-        // pre-render needs is now the thing that sets the window
-        // (`stemPrerenderLeadWindow`). Landing 60 s out from a seam whose render
-        // wants 75 s is landing inside the runway, which is the one outcome the
-        // button is meant to prevent.
-        inputs.prerenderLead = Self.stemPrerenderLeadWindow(
-            runway: TransitionSegment.Signature(plan: planned.plan).map {
-                Self.stemPrerenderRunway(overlapDuration: $0.overlapDuration,
-                                         sides: Self.stemPrerenderSidesPerSeam)
-            } ?? 0)
+        inputs.prerenderLead = Self.transitionPrerenderLeadWindow(
+            runway: Self.transitionPrerenderRunway)
         inputs.prerenderHandoff = TransitionSegmentRenderer.handoff
         return AutoMixSeamJump.compute(inputs)
     }
@@ -2922,7 +2461,7 @@ final class PlayerService: ObservableObject {
                 .init(kind: $0.executedKind, outPoint: $0.executedOutPoint,
                       overlap: $0.executedOverlap)
             },
-            gesture: seam?.gesture ?? armedPlan?.style.stemTechnique?.label,
+            gesture: seam?.gesture ?? armedPlan?.style.score?.label,
             intent: seam?.planned?.intentClass ?? armed?.intentClass,
             path: seam?.path,
             overrides: seam?.overrides ?? AutoMixDebugModel.shared.overrides.badges,
@@ -2987,7 +2526,7 @@ final class PlayerService: ObservableObject {
         deckLoaded = true
         hasLocalFile = true
         deckFiles[activeDeck] = url
-        // Only a cache file is `currentLocalURL`: the stem pre-render and the
+        // Only a cache file is `currentLocalURL`: the transition pre-render and the
         // lyric sidecar write next to it, and downloads are not cache entries.
         currentLocalURL = lease == nil ? url : nil
         isBuffering = false
@@ -3162,27 +2701,8 @@ final class PlayerService: ObservableObject {
     /// decision round.
     private var autoMixPickCommitted = false
 
-    /// How long before the end of the track the pick is made even if
-    /// candidates are still downloading.
-    ///
-    /// The winner does not go straight to the engine: it still has to be
-    /// re-resolved, downloaded at *playback* quality and re-analyzed by the
-    /// ordinary prefetch path (a lossy file's beat grid may not be aligned to
-    /// the real one — predev §2.2), and a stem hand-over then wants
-    /// `stemPrerenderLead` = 60 s on top.
-    ///
-    /// 90 s was sized as 30 for the first half and 60 for the second. The first
-    /// half measured 40 s and more in the field — a lossless transfer on a
-    /// domestic line plus an analyzer pass — so the pre-render was routinely
-    /// handed under 50 s and the stem gesture dropped to a whole-mix crossfade
-    /// without anyone being told. 120 s is the same arithmetic with the
-    /// measured number in it. The fraction floor keeps a short track from
-    /// deciding before it has played at all.
-    ///
-    /// This is the *worst* case, not the common one: only a deadline-committed
-    /// pick waits this long. A pick that satisfies, exhausts the queue or spends
-    /// its download budget commits as soon as it does, which on a warm pool is
-    /// within seconds of the track starting.
+    /// Commit the queue pick early enough to download and analyze it at
+    /// playback quality, then render any score before its splice.
     nonisolated private static let autoMixDecisionLead: TimeInterval = 120
 
     /// The fraction floor, so a short track does not decide before it has
@@ -3352,7 +2872,7 @@ final class PlayerService: ObservableObject {
         let winner = selector.pick(
             outgoing: currentTrack, outgoingAnalysis: currentAnalysis, pool: pool,
             plannerConfig: plannerConfig,
-            outgoingLyricLineEnds: outgoingLyricTiming(for: currentLocalURL)?.lineEnds ?? [])
+            outgoingLyricLineEnds: outgoingLyricLineEnds(for: currentLocalURL))
         Self.noteIfSlow("pick", (ContinuousClock.now - pickStart).milliseconds,
                         detail: "pool=\(pool.count)")
         // Good enough is good enough: the tier is the dominant term, so a
@@ -3803,4 +3323,3 @@ final class PlayerService: ObservableObject {
         KumoneDirectories.applicationSupport().appendingPathComponent("player-state.json")
     }
 }
-#endif

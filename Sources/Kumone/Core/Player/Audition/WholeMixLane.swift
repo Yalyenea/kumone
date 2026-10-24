@@ -1,23 +1,5 @@
-#if os(macOS)
 import AVFoundation
 import Foundation
-
-// Whole-mix gain lanes: the one new rendering capability a score needs
-// (predev §2.2).
-//
-// A `StemEnvelope` lane can already write a step — two breakpoints a few
-// milliseconds apart — but it is a *stem* lane, so writing one costs a
-// separation pass per side, and a full-band gesture (a cut, a bar of silence)
-// wants nothing separated at all. Paying ~30 s of Metal time to make one beat
-// quiet is absurd. So this is the same idea one layer up: a per-sample gain on
-// each side's **whole mix**, applied to the source buffer before a sample is
-// pulled through the graph, with no separator anywhere near it.
-//
-// The other difference from the stem lanes is resolution. `StemTechniqueLayer`
-// evaluates its curves on the automation's own 50 Hz control grid and
-// interpolates, which is right for a curve and wrong for a cut: 20 ms of
-// interpolation *is* the flam the whole score model exists to avoid. These
-// lanes are evaluated per sample, so a breakpoint lands on the frame it names.
 
 /// A gain curve on one side's whole mix, in **overlap-relative seconds**.
 ///
@@ -45,10 +27,8 @@ struct WholeMixLane: Sendable, Equatable {
 
     init(_ points: [Point] = []) { self.points = points }
 
-    /// −60 dB is silence under any bed — the same floor `StemEnvelope` uses,
-    /// so "cut" and "muted lane" mean the same number everywhere.
-    static let minGainDB: Float = StemEnvelope.minGainDB
-    static let maxGainDB: Float = StemEnvelope.maxGainDB
+    /// The cut floor keeps the edge quiet without stepping the signal.
+    static let minGainDB: Float = -60
 
     /// How long a cut edge takes. The predev's 5–10 ms: fast enough that a
     /// listener hears an event and not a fade, slow enough that the waveform
@@ -148,9 +128,6 @@ struct WholeMixLanes: Sendable, Equatable {
     /// both decks' fader and EQ automation and lets these two lanes say
     /// everything — the rates, and only the rates, still come from the plan.
     ///
-    /// False leaves the lanes stacked on top of the automation exactly like a
-    /// `StemEnvelope`, which is what a future gesture that decorates a blend
-    /// rather than replacing it would ask for.
     var ownsGainLaw = false
 
     var isPassThrough: Bool {
@@ -160,15 +137,6 @@ struct WholeMixLanes: Sendable, Equatable {
 
 /// Applies whole-mix lanes to the two decks' source buffers.
 ///
-/// The lane→sample map is the same one the stem layer uses — and it has to be,
-/// because it is the same question: a lane is written in overlap-relative
-/// seconds and applied to source frames, and under a post-swap glide that map
-/// is the integral of a moving rate rather than a straight line
-/// (`StemTechniqueLayer.Side.sourceAdvance`). Here it is inverted once, at the
-/// breakpoints, instead of per frame: the breakpoints are converted to source
-/// seconds and the walk between them is a plain cursor. That is what makes an
-/// edge land on the frame it names — the map is exact *at* every breakpoint,
-/// and only the 8 ms in between is warped by a glide, by parts in ten thousand.
 enum WholeMixLaneLayer {
 
     struct Applied: Sendable, Equatable {
@@ -190,8 +158,8 @@ enum WholeMixLaneLayer {
     }
 
     static func apply(_ lanes: WholeMixLanes,
-                      outgoing: StemTechniqueLayer.Side,
-                      incoming: StemTechniqueLayer.Side,
+                      outgoing: TransitionAudioSide,
+                      incoming: TransitionAudioSide,
                       overlap: TimeInterval) throws -> Applied {
         guard overlap > 0 else { throw LaneError.noOverlap }
         var frames = (outgoing: 0, incoming: 0)
@@ -202,7 +170,7 @@ enum WholeMixLaneLayer {
 
     /// One side. Returns how many frames were rewritten (0 for a pass-through
     /// lane, which is not touched at all).
-    static func apply(_ lane: WholeMixLane, to side: StemTechniqueLayer.Side,
+    static func apply(_ lane: WholeMixLane, to side: TransitionAudioSide,
                       overlap: TimeInterval) throws -> Int {
         guard !lane.isPassThrough else { return 0 }
         guard let data = side.buffer.floatChannelData else { throw LaneError.emptyWindow }
@@ -227,7 +195,7 @@ enum WholeMixLaneLayer {
     /// Exposed (and pure) so a test can assert where an edge lands without
     /// rendering anything.
     static func perSampleGains(_ lane: WholeMixLane,
-                               clock: StemTechniqueLayer.SourceClock,
+                               clock: TransitionSourceClock,
                                frames: Int, sampleRate: Double) -> [Float] {
         var out = [Float](repeating: 1, count: frames)
         guard let first = lane.points.first, let last = lane.points.last else { return out }
@@ -254,4 +222,3 @@ enum WholeMixLaneLayer {
         return out
     }
 }
-#endif

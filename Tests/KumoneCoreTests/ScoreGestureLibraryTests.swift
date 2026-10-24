@@ -38,14 +38,9 @@ private func compile(_ score: TransitionScore, plan: BeatMatchedPlan,
 
     private func material(
         aim: TransitionAim?,
-        plan: BeatMatchedPlan = matchedPlan(),
-        incoming: TrackAnalysis = ScoreFixtures.analysis(bpm: 120),
-        hasLyrics: Bool = false, stemsReady: Bool = false, hasStemTechnique: Bool = false
+        hasLyrics: Bool = false
     ) -> ScoreTemplate.Material {
-        ScoreTemplate.Material(
-            outgoing: ScoreFixtures.analysis(bpm: 120), incoming: incoming,
-            plan: plan, aim: aim, hasLyrics: hasLyrics,
-            stemsReady: stemsReady, hasStemTechnique: hasStemTechnique)
+        ScoreTemplate.Material(aim: aim, hasLyrics: hasLyrics)
     }
 
     private let drop = TransitionAim(target: .drop, time: 8, leadBars: 4)
@@ -80,17 +75,12 @@ private func compile(_ score: TransitionScore, plan: BeatMatchedPlan,
         #expect(plain?.passedOver.count == 2)
     }
 
-    @Test func theTwoLaddersDoNotShareASingleEvent() {
-        // P3's rule survives P4: `cutCulture` is still the only class that
-        // cuts. What `dropAlign` gained is a gesture that does not.
+    @Test func theCutLadderOwnsTheSeam() {
+        // Only cutCulture offers a score template.
         let config = TransitionPlanner.Config.standard
         for template in ScoreTemplate.ladder(.cutCulture, config: config) {
             #expect(template.score.ownsSeam)
             #expect(template.family == .cutCulture)
-        }
-        for template in ScoreTemplate.ladder(.dropAlign, config: config) {
-            #expect(!template.score.ownsSeam)
-            #expect(template.family == .dropAlign)
         }
         // The control arm is on neither ladder: a control the planner could
         // pick on its own is not a control.
@@ -139,72 +129,6 @@ private func compile(_ score: TransitionScore, plan: BeatMatchedPlan,
                                      config: config)?.template == .throwCut)
     }
 
-    @Test func theBedIsOnlyOfferedWhereMutingALaneChangesSomething() {
-        var config = TransitionPlanner.Config.standard
-        let landing = TransitionAim(target: .drop, time: 8, leadBars: 4, landing: .overlapEnd)
-        let sung = ScoreFixtures.analysis(bpm: 120)
-        let bed = ScoreTemplate.bedIntro(bars: 4)
-        // Four bars at 120 BPM is eight seconds, and on an aimed hand-over the
-        // bed's window *is* the overlap — so the plan every case below is
-        // judged on has to be one a four-bar bed could actually cover.
-        let fits = matchedPlan(overlap: 8, bassSwapOffset: 4)
-
-        // The happy case: a separator, a sung entry window, an overlap that
-        // ends on the drop.
-        guard case .yes = bed.qualify(
-            material(aim: landing, plan: fits, incoming: sung, stemsReady: true),
-            config: config) else {
-            Issue.record("a sung entry with stems ready should get a bed"); return
-        }
-
-        // …and the same everything on a hand-over twice as long is refused,
-        // because holding a singer down from the top of a sixteen-second
-        // overlap is a different, longer gesture wearing this one's name.
-        guard case .no(let tooLong) = bed.qualify(
-            material(aim: landing, incoming: sung, stemsReady: true), config: config) else {
-            Issue.record("a four-bar bed must not cover an eight-bar overlap"); return
-        }
-        #expect(tooLong.contains("longer than the 4"))
-
-        // **The rule that matters.** An instrumental entry window means the bed
-        // *is* the mix: the render is identical and a separation pass has been
-        // spent on nothing.
-        let instrumental = ScoreFixtures.analysis(
-            bpm: 120, vocal: [Float](repeating: 0.05, count: 10)
-                + [Float](repeating: 0.9, count: 20))
-        guard case .no(let quiet) = bed.qualify(
-            material(aim: landing, plan: fits, incoming: instrumental, stemsReady: true),
-            config: config) else {
-            Issue.record("a bed under an instrumental entry is a pass spent on nothing"); return
-        }
-        #expect(quiet.contains("instrumental"))
-
-        // No separator: there is no other way to have a bed, so this is a no
-        // rather than a degradation.
-        guard case .no(let noStems) = bed.qualify(
-            material(aim: landing, plan: fits, incoming: sung, stemsReady: false),
-            config: config) else {
-            Issue.record("a bed needs a separator"); return
-        }
-        #expect(noStems.contains("separator"))
-
-        // A hand-over that already carries a stem technique: two producers
-        // writing the same four lanes. And an unaimed blend has no landmark for
-        // the singer to join on.
-        for bad in [material(aim: landing, plan: fits, incoming: sung,
-                             stemsReady: true, hasStemTechnique: true),
-                    material(aim: nil, plan: fits, incoming: sung, stemsReady: true)] {
-            guard case .no = bed.qualify(bad, config: config) else {
-                Issue.record("that material should not have got a bed"); return
-            }
-        }
-
-        config.scoreBedIntroEnabled = false
-        #expect(ScoreTemplate.select(
-            family: .dropAlign,
-            material: material(aim: landing, plan: fits, incoming: sung, stemsReady: true),
-            config: config) == nil)
-    }
 }
 
 // MARK: - The slam and the tension cut
@@ -288,7 +212,7 @@ private func compile(_ score: TransitionScore, plan: BeatMatchedPlan,
         let lanes = try #require(c.lanes)
         let sampleRate = 44_100.0
         let gains = WholeMixLaneLayer.perSampleGains(
-            lanes.outgoing, clock: StemTechniqueLayer.SourceClock(rate: 1),
+            lanes.outgoing, clock: TransitionSourceClock(rate: 1),
             frames: Int(plan.overlapDuration * sampleRate), sampleRate: sampleRate)
         let cutAt = lanes.outgoing.points[2].t
         let cutFrame = Int((cutAt * sampleRate).rounded())
@@ -330,100 +254,6 @@ private func compile(_ score: TransitionScore, plan: BeatMatchedPlan,
     }
 }
 
-// MARK: - The bed
-
-@Suite struct BedIntroCompileTests {
-
-    /// A `dropAlign` geometry: four bars of overlap whose *end* is the drop, at
-    /// the incoming track's 8 s.
-    private let landing = TransitionAim(target: .drop, time: 8, leadBars: 4,
-                                        landing: .overlapEnd)
-
-    @Test func theBedIsAnchoredOnTheOverlapEndNotOnTheSwap() throws {
-        let plan = matchedPlan(overlap: 8, bassSwapOffset: 4)
-        let c = compile(.bedIntro(bars: 4), plan: plan, aim: landing)
-        #expect(c.didCompile)
-        // The whole point of the second anchor: a decorating score has no seam,
-        // so bar 0 is the arrival the gesture is built around.
-        #expect(c.origin == .overlapEnd)
-        #expect(abs(c.seamOffset - 8) < 1e-9)
-        #expect(c.runwayClass == .incomingStems)
-
-        // It writes no whole-mix gain at all — the blend underneath is the
-        // blend the planner made, field for field.
-        let lanes = try #require(c.lanes)
-        #expect(!lanes.ownsGainLaw)
-        #expect(lanes.isPassThrough)
-
-        // …and everything it does say, it says on one stem lane.
-        let envelope = try #require(c.stemEnvelope)
-        #expect(envelope.isPassThrough(.outgoingVocal))
-        #expect(envelope.isPassThrough(.outgoingBed))
-        #expect(envelope.isPassThrough(.incomingBed))
-        #expect(!envelope.isPassThrough(.incomingVocal))
-        #expect(envelope.gainDB(.incomingVocal, at: 0) == StemEnvelope.minGainDB)
-        #expect(envelope.gainDB(.incomingVocal, at: 4) == StemEnvelope.minGainDB)
-        // The singer is at full voice on the landing frame, not around it.
-        #expect(envelope.gainDB(.incomingVocal, at: 8) == 0)
-        #expect(envelope.gainDB(.incomingVocal,
-                                at: 8 - ScoreCompiler.bedVocalRampSeconds)
-                == StemEnvelope.minGainDB)
-        #expect(throws: Never.self) { try envelope.validate(overlap: 8) }
-    }
-
-    @Test func aHandOverLongerThanTheBedIsRefusedRatherThanStretched() {
-        // The bed's start is not negotiable — it is the instant the incoming
-        // deck starts. So on a longer overlap the gesture cannot be performed
-        // as written, and muting from the top would be a different (longer)
-        // gesture wearing this one's name.
-        let long = matchedPlan(overlap: 16, bassSwapOffset: 8)
-        let c = compile(.bedIntro(bars: 4), plan: long,
-                        aim: TransitionAim(target: .drop, time: 16, leadBars: 8,
-                                           landing: .overlapEnd))
-        #expect(!c.didCompile)
-        #expect(c.refusalReason?.contains("伴奏垫") == true)
-        // …and the same score on a hand-over that *is* four bars compiles, so
-        // this is the length rule and not a broken compile.
-        #expect(compile(.bedIntro(bars: 4), plan: matchedPlan(overlap: 8, bassSwapOffset: 4),
-                        aim: landing).didCompile)
-    }
-
-    @Test func theBedIsTheOnlyGestureThatPaysASeparationRunway() {
-        // The cost story, end to end: the score names its own runway class and
-        // the player prices it, and a bed splits **one** deck rather than two.
-        #expect(TransitionScore.bedIntro(bars: 4).runwayClass == .incomingStems)
-        #expect(PlayerService.stemPrerenderRunway(overlapDuration: 16,
-                                                  separatesStems: true, sides: 1) == 31)
-        // Against 47 for a two-sided stem technique and 15 for a whole-mix
-        // score: three prices, three gestures, one function.
-        #expect(PlayerService.stemPrerenderRunway(overlapDuration: 16) == 47)
-        #expect(PlayerService.stemPrerenderRunway(overlapDuration: 16,
-                                                  separatesStems: false) == 15)
-    }
-
-    @MainActor
-    @Test func aBedThatWillNotCompileIsStrippedBeforeAnythingSeparates() throws {
-        // Vetting is where a template that does not qualify against the *final*
-        // geometry stops costing anything: stripped at arm time with the
-        // compiler's own sentence, so no separation pass is ever spawned for it.
-        let long = matchedPlan(overlap: 16, bassSwapOffset: 8)
-        let planned = PlannedTransition(
-            plan: .beatMatched(long),
-            style: aimedStyle(.bedIntro(bars: 4),
-                              TransitionAim(target: .drop, time: 16, leadBars: 8,
-                                            landing: .overlapEnd)))
-        let vetted = PlayerService.vettingScore(
-            planned, outgoing: ScoreFixtures.analysis(bpm: 120),
-            incoming: ScoreFixtures.analysis(bpm: 120), outgoingURL: nil)
-        #expect(vetted.planned.style.score == nil)
-        #expect(vetted.planned.style.stemTechnique == nil)
-        #expect(try #require(vetted.refusal).contains("伴奏垫"))
-        // The aim survives the strip, exactly as P2 decided: "aimed at the
-        // drop, score refused" is a true and useful sentence.
-        #expect(vetted.planned.style.aim != nil)
-    }
-}
-
 // MARK: - The fall-back path, still byte-identical
 
 @Suite struct GestureLibraryByteIdentityTests {
@@ -440,19 +270,16 @@ private func compile(_ score: TransitionScore, plan: BeatMatchedPlan,
         // so a forced render is the gesture the planner would have offered.
         #expect(TransitionPlanner.Config.standard.scoreTensionCutBeats
                 == TransitionScore.defaultTensionCutBeats)
-        #expect(TransitionPlanner.Config.standard.scoreBedIntroBars
-                == TransitionScore.defaultBedIntroBars)
         // Every new knob is on the tuning surface, or it cannot be swept.
         let names = Set(TransitionPlanner.Config.fields.map(\.name))
-        for knob in ["scoreTensionCutEnabled", "scoreTensionCutBeats", "scoreBedIntroEnabled",
-                     "scoreBedIntroBars", "scoreBedIntroMinIncomingVocal"] {
+        for knob in ["scoreTensionCutEnabled", "scoreTensionCutBeats"] {
             #expect(names.contains(knob))
         }
     }
 
     @Test func theStandardConfigIsStillTheStandardConfig() {
-        // The pin the whole "byte-identical fall-back" claim rests on: adding
-        // five fields must not have moved a sixth.
+        // The pin the whole "byte-identical fall-back" claim rests on: changing
+        // gesture controls must not move unrelated defaults.
         #expect(TransitionPlanner.Config.standard.diffFromStandard.isEmpty)
         #expect(TransitionPlanner.Config.standard.scoreEnabled == false)
         #expect(TransitionPlanner.Config.standard.intentEnabled == false)

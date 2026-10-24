@@ -1,4 +1,3 @@
-#if os(macOS)
 import SwiftUI
 import AppKit
 
@@ -10,7 +9,7 @@ struct ShortcutSettingsView: View {
     @ObservedObject private var manager = ShortcutManager.shared
     @State private var scope = ShortcutScope.inApp
     @State private var recordingAction: ShortcutAction?
-    
+
     var body: some View {
         VStack(spacing: 0) {
             Picker("作用范围", selection: Binding(
@@ -26,7 +25,7 @@ struct ShortcutSettingsView: View {
             .labelsHidden()
             .pickerStyle(.segmented)
             .padding()
-            
+
             Form {
                 Section {
                     ForEach(ShortcutAction.allCases) { action in
@@ -44,7 +43,7 @@ struct ShortcutSettingsView: View {
                                     ))
                     }
                 }
-                
+
                 Section {
                     Button("恢复默认") {
                         do {
@@ -67,7 +66,7 @@ struct ShortcutRow: View {
     let shortcut: UserShortcut
     @Binding var isRecording: Bool
     @FocusState private var isFocused: Bool
-    
+
     var body: some View {
         HStack {
             Label(action.displayName, systemImage: action.systemImage)
@@ -141,7 +140,7 @@ struct ShortcutRecorderView: NSViewRepresentable {
     @Binding var isRecording: Bool
     let onClear: () -> Void
     let onRecord: (String, UserShortcut.ShortcutModifiers) -> Void
-    
+
     func makeNSView(context: Context) -> NSView {
         let view = RecorderNSView()
         view.onRecord = { key, modifiers in
@@ -159,7 +158,7 @@ struct ShortcutRecorderView: NSViewRepresentable {
         }
         return view
     }
-    
+
     func updateNSView(_ nsView: NSView, context: Context) {
         if isRecording {
             DispatchQueue.main.async {
@@ -168,29 +167,29 @@ struct ShortcutRecorderView: NSViewRepresentable {
             }
         }
     }
-    
+
     class RecorderNSView: NSView {
         var onRecord: ((String, UserShortcut.ShortcutModifiers) -> Void)?
         var onCancel: (() -> Void)?
         var onClear: (() -> Void)?
-        
+
         override var acceptsFirstResponder: Bool { true }
-        
+
         override func keyDown(with event: NSEvent) {
             if event.keyCode == 53 {
                 onCancel?()
                 return
             }
-            
+
             let modifiers = UserShortcut.ShortcutModifiers(nsFlags: event.modifierFlags)
             if modifiers.isEmpty, event.keyCode == 51 || event.keyCode == 117 {
                 onClear?()
                 return
             }
-            
+
             // Try to get the key, handling special characters/function keys
             let key = event.charactersIgnoringModifiers ?? ""
-            
+
             // If the key is empty, check keyCode for special keys
             if key.isEmpty {
                 // Map function keys/arrows
@@ -204,7 +203,7 @@ struct ShortcutRecorderView: NSViewRepresentable {
                 // ... add more if needed
                 default: specialKey = ""
                 }
-                
+
                 if !specialKey.isEmpty {
                     onRecord?(specialKey, modifiers)
                     return
@@ -213,14 +212,13 @@ struct ShortcutRecorderView: NSViewRepresentable {
                 onRecord?(key, modifiers)
                 return
             }
-            
+
             super.keyDown(with: event)
         }
-        
+
         override func resignFirstResponder() -> Bool {
             onCancel?()
             return super.resignFirstResponder()
         }
     }
 }
-#endif

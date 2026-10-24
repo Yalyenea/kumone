@@ -1,4 +1,3 @@
-#if os(macOS)
 import Carbon
 import AppKit
 import OSLog
@@ -8,14 +7,14 @@ import OSLog
 /// 统一的修饰符定义，映射到 Carbon 的底层常量
 public struct HotKeyModifier: OptionSet {
     public let rawValue: UInt32
-    
+
     public init(rawValue: UInt32) { self.rawValue = rawValue }
-    
+
     public static let command = HotKeyModifier(rawValue: UInt32(cmdKey))
     public static let option  = HotKeyModifier(rawValue: UInt32(optionKey))
     public static let control = HotKeyModifier(rawValue: UInt32(controlKey))
     public static let shift   = HotKeyModifier(rawValue: UInt32(shiftKey))
-    
+
     var carbonModifiers: UInt32 { rawValue }
 }
 
@@ -25,7 +24,7 @@ public enum GlobalHotKeyError: Error, LocalizedError {
     case invalidShortcut
     case registrationFailed(OSStatus)
     case handlerInstallFailed(OSStatus)
-    
+
     public var errorDescription: String? {
         switch self {
         case .invalidShortcut:
@@ -125,7 +124,7 @@ func resolveCarbonModifiers(_ modifiers: UserShortcut.ShortcutModifiers) -> UInt
 @MainActor
 public final class GlobalHotKeyManager {
     public static let shared = GlobalHotKeyManager()
-    
+
     private var hotKeyHandlers: [UInt32: () -> Void] = [:]
     private var hotKeyRefs: [UInt32: EventHotKeyRef] = [:]
     private var eventHandler: EventHandlerRef?
@@ -133,14 +132,14 @@ public final class GlobalHotKeyManager {
     private let kHotKeySignature = OSType(0x4B4D4E31) // 'KMN1'
     private var actionHotKeyId: [ShortcutAction: UInt32] = [:]
     private let logger = Logger(subsystem: "Kumone", category: "GlobalHotKey")
-    
+
     private init() {
         let status = installEventHandler()
         if status != noErr {
             logger.error("Failed to install hot key event handler: \(describeOSStatus(status))")
         }
     }
-    
+
     /// 必须由 App lifecycle 在退出时调用，同步释放所有 Carbon 资源。
     public func shutdown() {
         unregisterAll()
@@ -152,7 +151,7 @@ public final class GlobalHotKeyManager {
             eventHandler = nil
         }
     }
-    
+
     @discardableResult
     private func registerHotKey(keyCode: UInt32, modifiers: UInt32, handler: @escaping () -> Void) -> UInt32? {
         guard hotKeyIDCounter < UInt32.max else {
@@ -174,17 +173,17 @@ public final class GlobalHotKeyManager {
             return nil
         }
     }
-    
+
     private func _unregisterByID(_ id: UInt32) {
         if let ref = hotKeyRefs[id] { UnregisterEventHotKey(ref) }
         hotKeyHandlers.removeValue(forKey: id)
         hotKeyRefs.removeValue(forKey: id)
     }
-    
+
     public func unregisterAll() {
         for id in hotKeyRefs.keys { _unregisterByID(id) }
     }
-    
+
     private func installEventHandler() -> OSStatus {
         guard eventHandler == nil else {
             logger.warning("Event handler already installed, skipping")
@@ -210,9 +209,9 @@ public final class GlobalHotKeyManager {
         }
         return status
     }
-    
+
     private func handleHotKey(id: UInt32) { hotKeyHandlers[id]?() }
-    
+
     @discardableResult
     public func register(keyCode: UInt32, modifiers: HotKeyModifier, action: @escaping () -> Void) -> Result<UInt32, GlobalHotKeyError> {
         guard let id = registerHotKey(keyCode: keyCode, modifiers: modifiers.carbonModifiers, handler: action) else {
@@ -220,14 +219,14 @@ public final class GlobalHotKeyManager {
         }
         return .success(id)
     }
-    
+
     @discardableResult
     public func unregister(id: UInt32) -> Bool {
         guard hotKeyRefs[id] != nil else { return false }
         defer { _unregisterByID(id) }
         return true
     }
-    
+
     @discardableResult
     public func registerForAction(_ action: ShortcutAction, shortcut: UserShortcut) -> GlobalHotKeyRegistrationResult {
         guard let keyCode = resolveKeyCode(shortcut.key) else { return .invalidShortcut }
@@ -240,14 +239,14 @@ public final class GlobalHotKeyManager {
         logger.info("Registered \(action.rawValue): keyCode=\(keyCode) mods=\(carbonMods)")
         return .registered
     }
-    
+
     public func unregister(action: ShortcutAction) {
         if let id = actionHotKeyId[action] {
             _unregisterByID(id)
             actionHotKeyId.removeValue(forKey: action)
         }
     }
-    
+
     func refreshAll(from manager: ShortcutManager) {
         unregisterAll()
         actionHotKeyId.removeAll()
@@ -257,7 +256,7 @@ public final class GlobalHotKeyManager {
         }
         logger.info("refreshAll complete, registered \(self.actionHotKeyId.count) hotkeys")
     }
-    
+
     private func executeAction(_ action: ShortcutAction) {
         ShortcutManager.shared.executeAction(action)
     }
@@ -270,4 +269,3 @@ public enum GlobalHotKeyRegistrationResult {
     case invalidShortcut
     case registrationFailed
 }
-#endif

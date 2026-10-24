@@ -1,26 +1,19 @@
 import SwiftUI
-#if os(macOS)
 import Combine
-#endif
 
 struct SettingsView: View {
     @EnvironmentObject private var settings: SettingsManager
     @EnvironmentObject private var account: AccountStore
     @Environment(\.openDestination) private var openDestination
     @Environment(\.dismiss) private var dismiss
-    #if os(macOS)
     @State private var navigationPath: [SettingsPage] = []
-    #endif
 
     private enum SettingsPage: Hashable {
         case storage
-        #if os(macOS)
         case shortcuts
-        #endif
     }
 
     var body: some View {
-        #if os(macOS)
         NavigationStack(path: $navigationPath) { settingsForm }
             .toolbar {
                 if !navigationPath.isEmpty {
@@ -37,9 +30,6 @@ struct SettingsView: View {
             .background(SettingsWindowToolbar(onClose: { navigationPath.removeAll() }))
             .frame(width: 520, height: 620)
             .overlay(alignment: .top) { SettingsToastOverlay() }
-        #else
-        settingsForm
-        #endif
     }
 
     private var settingsForm: some View {
@@ -58,10 +48,8 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            #if os(macOS)
 
             AutoMixSettingsSection()
-            #endif
 
             if settings.enableUnblock {
                 Section {
@@ -88,26 +76,10 @@ struct SettingsView: View {
                         Text(appearance.displayName).tag(appearance)
                     }
                 }
-                #if os(macOS)
-                // macOS only renders two now-playing layouts — 黑胶 and the
-                // regular page; the iOS 沉浸/简洁 options all fall back to the
-                // regular page here, so offering four was misleading (#105).
-                // Map any non-vinyl value onto 经典模式 so a stored default (e.g.
-                // 沉浸模式) still shows a valid selection.
-                Picker("播放页模式", selection: Binding(
-                    get: { settings.nowPlayingMode == .vinyl ? .vinyl : .classic },
-                    set: { settings.nowPlayingMode = $0 }
-                )) {
+                Picker("播放页模式", selection: $settings.nowPlayingMode) {
                     Text(NowPlayingMode.vinyl.displayName).tag(NowPlayingMode.vinyl)
                     Text(NowPlayingMode.classic.displayName).tag(NowPlayingMode.classic)
                 }
-                #else
-                Picker("播放页模式", selection: $settings.nowPlayingMode) {
-                    ForEach(NowPlayingMode.allCases) { mode in
-                        Text(mode.displayName).tag(mode)
-                    }
-                }
-                #endif
                 Toggle("显示歌词翻译", isOn: $settings.showLyricsTranslation)
                 Toggle("逐字歌词（卡拉OK）", isOn: $settings.verbatimLyrics)
                 Picker("日文歌词读音", selection: $settings.lyricsAnnotation) {
@@ -141,7 +113,6 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                     }
                 }
-                #if os(macOS)
                 Toggle("桌面歌词", isOn: $settings.showDesktopLyrics)
                 if settings.showDesktopLyrics {
                     Toggle("桌面歌词水平居中", isOn: $settings.desktopLyricsCentered)
@@ -149,7 +120,6 @@ struct SettingsView: View {
                 Text("在屏幕上悬浮显示当前歌词，可拖动调整位置")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                #endif
             }
 
             Section("存储") {
@@ -158,13 +128,11 @@ struct SettingsView: View {
                 }
             }
 
-            #if os(macOS)
             Section("通用") {
                 NavigationLink(value: SettingsPage.shortcuts) {
                     Label("快捷键", systemImage: "keyboard")
                 }
             }
-            #endif
 
             SyncSettingsSection()
 
@@ -183,25 +151,8 @@ struct SettingsView: View {
                 }
             }
 
-            Section("更新") {
-                Toggle("启动时自动检查更新", isOn: $settings.autoCheckUpdates)
-                Text("关闭后启动不再自动弹出更新提示，仍可手动检查更新")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
             Section("关于") {
                 LabeledContent("Kumone", value: appVersion)
-                #if os(iOS)
-                Button {
-                    IOSUpdater.shared.check(interactive: true)
-                } label: {
-                    Label("检查更新", systemImage: "arrow.triangle.2.circlepath")
-                }
-                Text("装有 TrollStore（巨魔）可在应用内一键自动安装；否则可下载 IPA 用侧载工具重装（登录状态与设置保留）")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                #endif
                 Text("网易云音乐第三方客户端 · 数据来自网易云音乐")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -213,18 +164,12 @@ struct SettingsView: View {
                 switch page {
                 case .storage:
                     StorageSpaceView {
-                        #if os(iOS)
-                        dismiss()
-                        #endif
                         openDestination(.downloaded)
                     }
-                #if os(macOS)
                 case .shortcuts:
                     ShortcutSettingsView()
-                #endif
                 }
             }
-            #if os(macOS)
             .navigationBarBackButtonHidden()
             .toolbar(removing: .title)
             .toolbar {
@@ -235,7 +180,6 @@ struct SettingsView: View {
                     }
                 }
             }
-            #endif
         }
     }
 
@@ -245,7 +189,6 @@ struct SettingsView: View {
 
 }
 
-#if os(macOS)
 private struct SettingsToastOverlay: View {
     @ObservedObject private var toasts = ToastCenter.shared
 
@@ -301,4 +244,3 @@ struct SettingsWindowToolbar: NSViewRepresentable {
         }
     }
 }
-#endif

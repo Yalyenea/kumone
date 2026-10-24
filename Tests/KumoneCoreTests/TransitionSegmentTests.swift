@@ -3,14 +3,7 @@ import Testing
 import AVFoundation
 import Foundation
 
-// Pre-rendered stem hand-overs (S3): the geometry of a rendered segment, the
-// engine's rules for accepting one, and what the splice actually sounds like.
-//
-// Nothing here needs a separation model. The stem layer takes its vocal from an
-// injected provider, so these tests inject one that returns silence: the bed is
-// then the whole mixture and the render is a plain transition — which is
-// exactly what a continuity assertion wants, and still exercises every line of
-// the pre-render and splice paths.
+// Pre-rendered hand-overs: segment geometry, acceptance and splice continuity.
 
 // MARK: - Fixtures and helpers
 
@@ -63,25 +56,11 @@ private enum SegmentFixtures {
     }
 }
 
-/// A separator that hears no vocal: the bed is the whole mixture, so every
-/// lane gain lands on material that is really there and the render stays a
-/// plain transition. Model-free by construction.
-private let silentVocals: VocalStemProvider = { request in
-    VocalStem(channels: request.samples.map { [Float](repeating: 0, count: $0.count) })
-}
-
-private let failingSeparator: VocalStemProvider = { _ in
-    throw StemTechniqueLayer.StemError.emptyWindow
-}
-
 private func plan(overlap: TimeInterval = 2, outPoint: TimeInterval = 5,
-                  inPoint: TimeInterval = 0,
-                  technique: StemTechnique? = .vocalDuck(depthDB: -9)) -> PlannedTransition {
-    var style = TransitionStyle(outroEffect: .fade, stagedEQ: true)
-    style.stemTechnique = technique
-    return PlannedTransition(
+                  inPoint: TimeInterval = 0) -> PlannedTransition {
+    PlannedTransition(
         plan: .crossfade(duration: overlap, outPoint: outPoint, inPoint: inPoint),
-        style: style)
+        style: TransitionStyle(outroEffect: .fade, stagedEQ: true))
 }
 
 private func request(_ planned: PlannedTransition,
@@ -90,6 +69,44 @@ private func request(_ planned: PlannedTransition,
     TransitionSegmentRenderer.Request(
         planned: planned,
         outgoingURL: SegmentFixtures.outgoing, incomingURL: incoming)
+}
+
+/// Build plain full-track audio for splice tests, which test the engine's
+/// segment contract independently of the score compiler's admission rules.
+private func renderSegment(_ request: TransitionSegmentRenderer.Request) throws -> TransitionSegment {
+    var options = OfflineTransitionRenderer.Options()
+    let handoff = TransitionSegmentRenderer.handoff
+    options.preRoll = handoff
+    options.postRoll = handoff
+    options.extendPreRollForTempoRamp = false
+    options.outgoingTrimDB = request.outgoingTrimDB
+    options.incomingTrimDB = request.incomingTrimDB
+    options.masterLimiterActive = request.masterLimiterActive
+    options.rideDB = request.planned.rideDB
+    options.normalizeToLUFS = nil
+    options.stretchPostRollForRideRelease = false
+    let mix = try OfflineTransitionRenderer.renderMix(
+        request.planned, outgoing: request.outgoingURL, incoming: request.incomingURL,
+        options: options)
+    let signature = try #require(TransitionSegment.Signature(plan: request.planned.plan))
+    let frames = try #require(mix.channels.first?.count)
+    let buffer = try #require(AVAudioPCMBuffer(pcmFormat: DeckChain.format,
+                                               frameCapacity: AVAudioFrameCount(frames)))
+    buffer.frameLength = AVAudioFrameCount(frames)
+    for channel in 0..<Int(buffer.format.channelCount) {
+        mix.channels[channel].withUnsafeBufferPointer {
+            buffer.floatChannelData![channel].update(from: $0.baseAddress!, count: frames)
+        }
+    }
+    let geometry = TransitionAutomation.Geometry(plan: request.planned.plan)
+    return TransitionSegment(
+        buffer: buffer, signature: signature, duration: Double(frames) / mix.sampleRate,
+        outgoingStart: mix.outgoing.first?.source ?? 0, handoffIn: mix.overlapStart,
+        handoffInSource: signature.outPoint - (mix.outgoing.first?.source ?? 0),
+        handoffOut: handoff,
+        midpointOffset: mix.overlapStart + TransitionSegmentRenderer.midpointOffset(
+            planned: request.planned, geometry: geometry),
+        incomingRideDB: mix.rideDBAtEnd, outgoing: mix.outgoing, incoming: mix.incoming)
 }
 
 /// Runs `body` on its own thread, failing the test rather than hanging the run.
@@ -140,8 +157,7 @@ struct TransitionSegmentTests {
     // handoff windows are the duplicated material they are supposed to be.
     @Test func segmentMapsOntoBothTracks() throws {
         let planned = plan(overlap: 4, outPoint: 6, inPoint: 1)
-        let segment = try TransitionSegmentRenderer.render(request(planned),
-                                                           provider: silentVocals)
+        let segment = try renderSegment(request(planned))
         let handoff = TransitionSegmentRenderer.handoff
 
         #expect(abs(segment.handoffIn - handoff) < 0.01)
@@ -180,12 +196,11 @@ struct TransitionSegmentTests {
             outPoint: 6, inPoint: 1, overlapBars: 4,
             outgoingRate: 1.0, incomingRate: 1.04,
             bassSwapOffset: 2, overlapDuration: 4)
-        var style = TransitionStyle(outroEffect: .fade, stagedEQ: true)
-        style.stemTechnique = .vocalDuck(depthDB: -9)
+        let style = TransitionStyle(outroEffect: .fade, stagedEQ: true)
         let planned = PlannedTransition(plan: .beatMatched(beat), style: style)
         var req = request(planned)
         req.planned = planned
-        let segment = try TransitionSegmentRenderer.render(req, provider: silentVocals)
+        let segment = try renderSegment(req)
 
         // Overlap at 1.04×, then the rate restore glides back to 1.0 — so the
         // deck has eaten more than 4 s of its own track by the hand-back, but
@@ -217,12 +232,11 @@ struct TransitionSegmentTests {
             bassSwapOffset: 2, overlapDuration: 4,
             rampLeadSeconds: 13, rampReleaseSeconds: 3,
             rampGlideBackFromSwap: true)
-        var style = TransitionStyle(outroEffect: .fade, stagedEQ: true)
-        style.stemTechnique = .vocalDuck(depthDB: -9)
+        let style = TransitionStyle(outroEffect: .fade, stagedEQ: true)
         let planned = PlannedTransition(plan: .beatMatched(beat), style: style)
         var req = request(planned)
         req.planned = planned
-        let segment = try TransitionSegmentRenderer.render(req, provider: silentVocals)
+        let segment = try renderSegment(req)
 
         let plan = TransitionPlan.beatMatched(beat)
         let geometry = TransitionAutomation.Geometry(plan: plan)
@@ -260,44 +274,34 @@ struct TransitionSegmentTests {
 
     // MARK: - Refusals
 
-    // Every way the pre-render declines, so the caller falls back to the live
-    // hand-over instead of splicing something wrong.
     @Test func aSegmentIsOnlyRenderedWhenItCanBeRenderedProperly() throws {
-        // No stem technique: there is nothing a segment would add.
+        // Plain blends are performed by the live graph.
+        #expect(throws: TransitionSegmentRenderer.SegmentError.self) {
+            _ = try TransitionSegmentRenderer.render(request(plan()))
+        }
+        #expect(throws: TransitionSegmentRenderer.SegmentError.self) {
+            _ = try TransitionSegmentRenderer.render(request(.plain(.gapless)))
+        }
         #expect(throws: TransitionSegmentRenderer.SegmentError.self) {
             _ = try TransitionSegmentRenderer.render(
-                request(plan(technique: nil)), provider: silentVocals)
-        }
-        // `.gapless` has no overlap to render.
-        var style = TransitionStyle(outroEffect: .fade, stagedEQ: false)
-        style.stemTechnique = .vocalDuck(depthDB: -9)
-        #expect(throws: TransitionSegmentRenderer.SegmentError.self) {
-            _ = try TransitionSegmentRenderer.render(
-                request(PlannedTransition(plan: .gapless, style: style)),
-                provider: silentVocals)
-        }
-        // The separator failed: the render would be a whole-mix transition, and
-        // the live path does that better (it can still be seeked and re-planned).
-        #expect(throws: TransitionSegmentRenderer.SegmentError.self) {
-            _ = try TransitionSegmentRenderer.render(request(plan()),
-                                                     provider: failingSeparator)
-        }
-        // Longer than the pre-render budget.
-        #expect(throws: TransitionSegmentRenderer.SegmentError.self) {
-            _ = try TransitionSegmentRenderer.render(
-                request(plan(overlap: TransitionSegmentRenderer.maxOverlap + 5, outPoint: 60)),
-                provider: silentVocals)
+                request(plan(overlap: TransitionSegmentRenderer.maxOverlap + 5, outPoint: 60)))
         }
     }
 
-    // `.vocalExchange` is a marker the planner emits and only the decision layer
-    // can compile. The renderer refuses to render one, so the pre-render has to
-    // compile it first — here, with no analysis to aim at, into a plain duck.
-    @Test func vocalExchangeIsCompiledBeforeRendering() throws {
-        let segment = try TransitionSegmentRenderer.render(
-            request(plan(overlap: 4, outPoint: 6, technique: .vocalExchange)),
-            provider: silentVocals)
-        #expect(segment.duration > 0)
+    @Test func aScoredSegmentRendersWholeMixAudio() throws {
+        // At 120 BPM a four-bar phrase is eight seconds, so the seam needs
+        // that much room inside the overlap instead of snapping back to zero.
+        let beat = matchedPlan(overlap: 16, outPoint: 8, bassSwapOffset: 8)
+        let planned = PlannedTransition(plan: .beatMatched(beat),
+                                        style: scoredStyle(.cutOnOne()))
+        var req = request(planned, incoming: ScoreFixtures.incoming)
+        req.outgoingURL = ScoreFixtures.outgoing
+        req.outgoingAnalysis = ScoreFixtures.analysis(bpm: 120)
+        req.incomingAnalysis = ScoreFixtures.analysis(bpm: 120)
+        let segment = try TransitionSegmentRenderer.render(req)
+        #expect(segment.buffer.frameLength > 0)
+        #expect(segment.signature == TransitionSegment.Signature(plan: planned.plan))
+        #expect(abs(segment.spliceStart - (8 - TransitionSegmentRenderer.handoff)) < 0.01)
     }
 
     // MARK: - Arming rules
@@ -305,10 +309,9 @@ struct TransitionSegmentTests {
     @Test func theEngineOnlyTakesASegmentForTheSeamItIsWaitingOn() async throws {
         guard await audioOutputAvailable.value else { return }
         let planned = plan(overlap: 2, outPoint: 6)
-        let segment = try TransitionSegmentRenderer.render(request(planned),
-                                                           provider: silentVocals)
-        let other = try TransitionSegmentRenderer.render(
-            request(plan(overlap: 2, outPoint: 7)), provider: silentVocals)
+        let segment = try renderSegment(request(planned))
+        let other = try renderSegment(
+            request(plan(overlap: 2, outPoint: 7)))
 
         let result = await withWatchdog("armingRules", timeout: 30) { () -> (Bool, Bool, Bool) in
             let engine = PlaybackEngine()
@@ -343,8 +346,7 @@ struct TransitionSegmentTests {
     @Test func cancellingTheTransitionDropsTheSegment() async throws {
         guard await audioOutputAvailable.value else { return }
         let planned = plan(overlap: 2, outPoint: 6)
-        let segment = try TransitionSegmentRenderer.render(request(planned),
-                                                           provider: silentVocals)
+        let segment = try renderSegment(request(planned))
         let result = await withWatchdog("cancelDropsSegment", timeout: 30) { () -> (Bool, Bool) in
             let engine = PlaybackEngine()
             defer { engine.stopAll() }
@@ -376,8 +378,7 @@ struct TransitionSegmentTests {
     @Test func aSplicedHandOverIsContinuousAndNeverDoubled() async throws {
         guard await audioOutputAvailable.value else { return }
         let planned = plan(overlap: 2, outPoint: 4)
-        let segment = try TransitionSegmentRenderer.render(request(planned),
-                                                           provider: silentVocals)
+        let segment = try renderSegment(request(planned))
 
         struct Sample { var t: TimeInterval; var deckA: Float; var deckB: Float; var seg: Float }
         final class Recorder: @unchecked Sendable {
@@ -527,12 +528,11 @@ struct TransitionSegmentTests {
             outgoingRate: 0.96, incomingRate: 1.05,
             bassSwapOffset: 1.5, overlapDuration: 3,
             rampLeadSeconds: 2, rampReleaseSeconds: 2)
-        var style = TransitionStyle(outroEffect: .fade, stagedEQ: true)
-        style.stemTechnique = .vocalDuck(depthDB: -9)
+        let style = TransitionStyle(outroEffect: .fade, stagedEQ: true)
         let planned = PlannedTransition(plan: .beatMatched(beat), style: style)
         var req = request(planned)
         req.planned = planned
-        let segment = try TransitionSegmentRenderer.render(req, provider: silentVocals)
+        let segment = try renderSegment(req)
 
         for ending in Ending.allCases {
             let result = await withWatchdog("spliceHygiene-\(ending.rawValue)",
@@ -672,7 +672,7 @@ struct TransitionSegmentTests {
     /// loads as `.convertedFile`, because reconnecting a running graph throws.
     /// The engine used to refuse every pre-rendered segment aimed at such a
     /// deck — silently, and reported as "the seam moved" — so on a library that
-    /// is roughly two fifths hi-res, two fifths of all stem hand-overs were
+    /// is roughly two fifths hi-res, two fifths of all pre-rendered hand-overs were
     /// quietly never performed.
     ///
     /// The hand-back is the whole difficulty: a `.file` deck is cued frame-exact
@@ -683,9 +683,8 @@ struct TransitionSegmentTests {
     @Test func aHiResIncomingDeckIsSplicedAndResumesWhereTheSegmentLeftIt() async throws {
         guard await audioOutputAvailable.value else { return }
         let planned = plan(overlap: 2, outPoint: 4)
-        let segment = try TransitionSegmentRenderer.render(
-            request(planned, incoming: SegmentFixtures.incomingHiRes),
-            provider: silentVocals)
+        let segment = try renderSegment(
+            request(planned, incoming: SegmentFixtures.incomingHiRes))
 
         struct Outcome {
             var declined: PlaybackEngine.SegmentDecline?
@@ -770,10 +769,9 @@ struct TransitionSegmentTests {
     @Test func aDeclinedSegmentSaysWhichRuleDeclinedIt() async throws {
         guard await audioOutputAvailable.value else { return }
         let planned = plan(overlap: 2, outPoint: 4)
-        let segment = try TransitionSegmentRenderer.render(request(planned),
-                                                           provider: silentVocals)
-        let foreign = try TransitionSegmentRenderer.render(
-            request(plan(overlap: 2, outPoint: 7)), provider: silentVocals)
+        let segment = try renderSegment(request(planned))
+        let foreign = try renderSegment(
+            request(plan(overlap: 2, outPoint: 7)))
 
         typealias Decline = PlaybackEngine.SegmentDecline
         struct Seen {

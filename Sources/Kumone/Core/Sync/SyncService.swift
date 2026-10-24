@@ -1,11 +1,7 @@
 import Combine
 import Foundation
 
-#if os(iOS)
-    import UIKit
-#else
     import AppKit
-#endif
 
 @MainActor
 final class SyncService: ObservableObject {
@@ -80,11 +76,7 @@ final class SyncService: ObservableObject {
         self.periodicRefreshSleep = periodicRefreshSleep
         enabled = defaults.bool(forKey: Keys.enabled)
         loginEnabled = defaults.bool(forKey: Keys.login)
-        #if os(iOS)
-            deviceName = UIDevice.current.name
-        #else
             deviceName = Host.current().localizedName ?? "Mac"
-        #endif
         preferencesSync = PreferencesSync(defaults: defaults, settings: .shared)
         do {
             try preferencesSync.restore()
@@ -116,12 +108,8 @@ final class SyncService: ObservableObject {
             player.$repeatMode.removeDuplicates().map { _ in () }.eraseToAnyPublisher(),
             player.$isFMMode.removeDuplicates().map { _ in () }.eraseToAnyPublisher(),
         ]
-        #if os(macOS)
             playbackChanges.append(player.$queueOrder.removeDuplicates().map { _ in () }.eraseToAnyPublisher())
             playbackChanges.append(player.$autoMixQueue.map { _ in () }.eraseToAnyPublisher())
-        #else
-            playbackChanges.append(player.$shuffleEnabled.removeDuplicates().map { _ in () }.eraseToAnyPublisher())
-        #endif
         let account = AccountStore.shared
         Publishers.MergeMany(playbackChanges).sink { [weak self] in
             self?.scheduleSync(SyncRequest(publicationDomains: [.playback]))

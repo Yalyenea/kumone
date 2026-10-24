@@ -1,4 +1,3 @@
-#if os(macOS)
 import Foundation
 import os
 
@@ -173,7 +172,7 @@ actor EngineAudioCache {
 
     /// Replace the set of cached files playback has open: both decks' loaded
     /// files, plus the armed next track and the current one's complete file,
-    /// which stem pre-renders and seeks re-open by path. Eviction never
+    /// which transition pre-renders and seeks re-open by path. Eviction never
     /// deletes these, however stale their mtime — AutoMix candidate prefetches
     /// touch many files, so LRU order alone does not keep a playing file safe.
     nonisolated func setFilesInUse(_ urls: some Sequence<URL>) {
@@ -297,4 +296,3 @@ actor EngineAudioCache {
         }
     }
 }
-#endif

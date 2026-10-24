@@ -1,4 +1,3 @@
-#if os(macOS)
 import AppKit
 import Combine
 import Foundation
@@ -195,4 +194,3 @@ struct ShortcutSettingsTests {
                                             isARepeat: false, keyCode: code))
     }
 }
-#endif
