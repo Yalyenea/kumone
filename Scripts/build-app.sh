@@ -57,7 +57,7 @@ if [ -n "${ARCHES:-}" ]; then
   for arch in $ARCHES; do
     build_slice "$arch-apple-macosx"
     SLICE_BINARIES+=("$SLICE_BIN_PATH/$APP_NAME")
-    # Resources and the metallib search below use the first slice's tree;
+    # Resources below use the first slice's tree;
     # every slice carries the same resources.
     BIN_PATH="${BIN_PATH:-$SLICE_BIN_PATH}"
   done
@@ -76,6 +76,13 @@ else
   cp "${SLICE_BINARIES[0]}" "$APP_BUNDLE/Contents/MacOS/$APP_NAME"
 fi
 chmod +x "$APP_BUNDLE/Contents/MacOS/$APP_NAME"
+
+# Keep crash-symbolication data outside the shipped app, then remove debug
+# and local symbols before signing. Runtime/exported symbols remain intact.
+if [ "$CONF" = "release" ]; then
+  xcrun dsymutil "$APP_BUNDLE/Contents/MacOS/$APP_NAME" -o "$BUILD_DIR/$APP_NAME.app.dSYM"
+  xcrun strip -S -x "$APP_BUNDLE/Contents/MacOS/$APP_NAME"
+fi
 
 # Localization tables → Bundle.main
 cp "$ROOT/Sources/Kumone/Resources/PrivacyInfo.xcprivacy" "$APP_BUNDLE/Contents/Resources/"
@@ -161,6 +168,6 @@ if [ -n "${ARCHES:-}" ]; then
 fi
 
 xattr -cr "$APP_BUNDLE" 2>/dev/null || true
-codesign --force --sign - "$APP_BUNDLE" >/dev/null 2>&1 || true
+codesign --force --sign - "$APP_BUNDLE" >/dev/null
 
 echo "Built $APP_BUNDLE ($CONF, $GIT_COMMIT)"

@@ -237,7 +237,7 @@ private func gridError(_ source: TimeInterval, spacing: TimeInterval) -> TimeInt
         // --- The outgoing side, across the head window the live deck is
         // crossfaded out over. This is the control: it was already right, and
         // it is what "right" looks like.
-        let outChannel = outgoingOnly.channels[0]
+        let outChannel = outgoingOnly.copyChannels()[0]
         let outClicks = clickTimes(outChannel, sampleRate: sampleRate)
             .filter { $0 < head + outgoingOnly.overlapDuration * 0.4 }
         #expect(outClicks.count >= 4, "expected clicks across the head (\(outClicks.count))")
@@ -254,7 +254,7 @@ private func gridError(_ source: TimeInterval, spacing: TimeInterval) -> TimeInt
         // --- The incoming side, across the overlap and the post-roll. The
         // fader opens over the overlap, so the first bursts are genuinely
         // quiet; start looking once the blend is past its knee.
-        let inChannel = incomingOnly.channels[0]
+        let inChannel = incomingOnly.copyChannels()[0]
         let inClicks = clickTimes(inChannel, sampleRate: sampleRate)
             .filter { $0 > head + incomingOnly.overlapDuration * 0.15 }
         #expect(inClicks.count >= 8, "expected clicks across the tail (\(inClicks.count))")

@@ -9,6 +9,7 @@ actor ImageCache {
     typealias CachedImageHandler = @MainActor @Sendable (PlatformImage) -> Void
 
     private nonisolated(unsafe) let memory = NSCache<NSString, PlatformImage>()
+    private let memoryPressure: DispatchSourceMemoryPressure
     nonisolated let directory: URL
     private let session: URLSession
     private let offlineArtwork: @Sendable (URL) async -> Data?
@@ -24,12 +25,19 @@ actor ImageCache {
         self.directory = directory
         self.session = session
         self.offlineArtwork = offlineArtwork
-        // Small decoded covers for a large playlist can fit within the byte
-        // budget; avoid evicting them after scrolling only a few hundred songs.
+        // Keep many small row thumbnails, but bound decoded cover storage.
+        // Disk originals remain available when an evicted cover is revisited.
         memory.countLimit = 2_000
-        memory.totalCostLimit = 64 * 1024 * 1024
+        memory.totalCostLimit = 24 * 1024 * 1024
+        let cache = memory
+        memoryPressure = DispatchSource.makeMemoryPressureSource(
+            eventMask: [.warning, .critical], queue: .global(qos: .utility))
+        memoryPressure.setEventHandler { cache.removeAllObjects() }
+        memoryPressure.resume()
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     }
+
+    deinit { memoryPressure.cancel() }
 
     private static func loadOfflineArtwork(for url: URL) async -> Data? {
         guard let scope = await MainActor.run(body: { AccountStore.shared.offlineScope }) else { return nil }
@@ -75,10 +83,12 @@ actor ImageCache {
         let result = await task.value
         if inflight[key]?.generation == requestGeneration { inflight[key] = nil }
         if generation == requestGeneration, let result {
-            let width = result.size.width
-            let height = result.size.height
-            memory.setObject(result, forKey: memoryKey,
-                             cost: Int(width * height * 4))
+            // NSImage.size is measured in points; charge the decoded pixels,
+            // including row alignment, so high-density images cannot undercount.
+            if let pixels = result.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+                memory.setObject(result, forKey: memoryKey,
+                                 cost: pixels.bytesPerRow * pixels.height)
+            }
         }
         // Do not store a smaller fallback under the requested size: a later
         // online request must still be able to fetch the full-resolution image.
@@ -90,20 +100,22 @@ actor ImageCache {
         return Self.decode(data, for: requestedURL)
     }
 
-    private static func thumbnailLimit(for url: URL) -> Int? {
+    private static func thumbnailLimit(for url: URL) -> Int {
         guard let value = URLComponents(url: url, resolvingAgainstBaseURL: false)?
-            .queryItems?.first(where: { $0.name == "param" })?.value else { return nil }
+            .queryItems?.first(where: { $0.name == "param" })?.value else { return 1_024 }
         let dimensions = value.split(separator: "y", omittingEmptySubsequences: false)
         guard dimensions.count == 2, let width = Int(dimensions[0]), let height = Int(dimensions[1]),
-              width > 0, height > 0 else { return nil }
-        return max(width, height)
+              width > 0, height > 0 else { return 1_024 }
+        // Covers have no full-resolution editing use in this app. Preserve
+        // Retina artwork while preventing oversized URLs from allocating originals.
+        return min(max(width, height), 2_048)
     }
 
     /// A CDN size hint is not a decode limit: offline artwork and older cache
     /// variants can contain the original cover. Decode thumbnails on this
     /// actor before SwiftUI displays them, with a bounded pixel allocation.
     private static func decode(_ data: Data, for url: URL) -> PlatformImage? {
-        guard let limit = thumbnailLimit(for: url) else { return PlatformImage(data: data) }
+        let limit = thumbnailLimit(for: url)
         guard let source = CGImageSourceCreateWithData(data as CFData, [
             kCGImageSourceShouldCache: false,
         ] as CFDictionary), let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
@@ -120,7 +132,7 @@ actor ImageCache {
     }
 
     private static func preview(_ image: PlatformImage, for url: URL) -> PlatformImage? {
-        guard let limit = thumbnailLimit(for: url) else { return image }
+        let limit = thumbnailLimit(for: url)
         guard let pixels = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
         guard max(pixels.width, pixels.height) > limit else { return image }
         let scale = Double(limit) / Double(max(pixels.width, pixels.height))

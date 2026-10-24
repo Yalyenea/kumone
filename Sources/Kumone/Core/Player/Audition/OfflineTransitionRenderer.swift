@@ -195,8 +195,10 @@ enum OfflineTransitionRenderer {
     /// The finished mix, before normalization and before anything is written.
     /// `render` turns one of these into a WAV; the live pre-render path plays
     /// it straight out of memory.
-    struct Mix: Sendable {
-        var channels: [[Float]]
+    struct Mix: @unchecked Sendable {
+        /// Filled only during rendering, then shared read-only with playback.
+        /// Keeping the final PCM here avoids copying a whole mix at the splice.
+        let buffer: AVAudioPCMBuffer
         var sampleRate: Double
         var duration: TimeInterval
         /// Where in the mix the overlap starts / how long it lasts.
@@ -215,6 +217,16 @@ enum OfflineTransitionRenderer {
         /// `scoreFallbackReason` says why.
         var lanesApplied: WholeMixLaneLayer.Applied?
         var scoreFallbackReason: String?
+
+        /// Make the one explicit sample copy needed by offline normalization.
+        /// The live segment path uses `buffer` directly and never calls this.
+        func copyChannels() -> [[Float]] {
+            let data = buffer.floatChannelData!
+            let frames = Int(buffer.frameLength)
+            return (0..<Int(buffer.format.channelCount)).map { channel in
+                Array(UnsafeBufferPointer(start: data[channel], count: frames))
+            }
+        }
 
         /// Source position of one deck at `offset`, linearly interpolated
         /// between breakpoints and clamped to the ends.
@@ -291,12 +303,13 @@ enum OfflineTransitionRenderer {
                        outgoing outgoingURL: URL, incoming incomingURL: URL,
                        to outputURL: URL, options: Options = Options()) throws -> Result {
         let started = Date()
-        var mix = try renderMix(planned, outgoing: outgoingURL, incoming: incomingURL,
-                                options: options)
+        let mix = try renderMix(planned, outgoing: outgoingURL, incoming: incomingURL,
+                               options: options)
 
         // --- Blind-test normalization, then the one and only file write.
-        let normalization = normalize(&mix.channels, options: options)
-        try write(mix.channels, to: outputURL, format: DeckChain.format,
+        var channels = mix.copyChannels()
+        let normalization = normalize(&channels, options: options)
+        try write(channels, to: outputURL, format: DeckChain.format,
                   sampleRate: mix.sampleRate)
 
         return Result(outputURL: outputURL, duration: mix.duration,
@@ -412,11 +425,29 @@ enum OfflineTransitionRenderer {
         let tickFrames = AVAudioFrameCount((sampleRate / options.tickRate).rounded())
         let tickSeconds = Double(tickFrames) / sampleRate
 
-        // The mix is accumulated rather than streamed straight to disk: the
-        // blind-test normalization needs the whole file's loudness before a
-        // single sample is written, and a ~40 s stereo render is a few MB.
+        // Allocate the final PCM once, before the first pump. Playback takes
+        // this buffer directly; only offline normalization copies its samples.
         let channelCount = Int(engine.manualRenderingFormat.channelCount)
-        var mix = [[Float]](repeating: [], count: channelCount)
+        var mix: AVAudioPCMBuffer?
+
+        func allocateMix(frames: AVAudioFrameCount) throws {
+            guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames) else {
+                throw RenderError.manualRenderingFailed
+            }
+            mix = buffer
+        }
+
+        // Walk the same clock as the pump loops: ceil(seconds / tickSeconds)
+        // can miss their last tick when repeated floating-point sums differ.
+        func tickedFrames(covering seconds: TimeInterval) -> AVAudioFrameCount {
+            var elapsed: TimeInterval = 0
+            var frames: AVAudioFrameCount = 0
+            while elapsed < seconds {
+                frames += tickFrames
+                elapsed += tickSeconds
+            }
+            return frames
+        }
 
         /// Pull `frames` frames through the graph and append them to the mix.
         func pump(_ frames: AVAudioFrameCount) throws {
@@ -426,12 +457,20 @@ enum OfflineTransitionRenderer {
                 let status = try engine.renderOffline(chunk, to: scratch)
                 switch status {
                 case .success:
-                    if let data = scratch.floatChannelData {
-                        for channel in 0..<channelCount {
-                            mix[channel].append(contentsOf: UnsafeBufferPointer(
-                                start: data[channel], count: Int(scratch.frameLength)))
-                        }
+                    guard let mix, let destination = mix.floatChannelData,
+                          let source = scratch.floatChannelData else {
+                        throw RenderError.manualRenderingFailed
                     }
+                    let offset = Int(mix.frameLength)
+                    let count = Int(scratch.frameLength)
+                    guard count > 0, offset + count <= Int(mix.frameCapacity) else {
+                        throw RenderError.manualRenderingFailed
+                    }
+                    for channel in 0..<channelCount {
+                        destination[channel].advanced(by: offset).update(from: source[channel],
+                                                                        count: count)
+                    }
+                    mix.frameLength = AVAudioFrameCount(offset + count)
                     remaining -= scratch.frameLength
                 case .insufficientDataFromInputNode:
                     // No input node in this graph; treat as end of material.
@@ -445,7 +484,6 @@ enum OfflineTransitionRenderer {
         }
 
         var overlapStart = options.preRoll
-        var written: AVAudioFrameCount = 0
         var lanesApplied: WholeMixLaneLayer.Applied?
         var scoreFallback: String?
         var endRideDB: Double = 0
@@ -485,6 +523,7 @@ enum OfflineTransitionRenderer {
                                             seconds: tail, format: format)
             let inBuffer = try loadSegment(incomingURL, from: 0,
                                            seconds: options.postRoll, format: format)
+            try allocateMix(frames: outBuffer.frameLength + inBuffer.frameLength)
             outgoingSource = outDuration - tail
             mark()
             from.schedule(outBuffer)
@@ -504,13 +543,11 @@ enum OfflineTransitionRenderer {
             to.setFader(1)
             to.player.play()
             try pump(tailFrames)
-            written += tailFrames
             advance(tailFrames, outgoingRate: 1, incomingRate: 0)
             overlapStart = Double(tailFrames) / sampleRate
 
             from.player.stop()
             try pump(inBuffer.frameLength)
-            written += inBuffer.frameLength
             advance(inBuffer.frameLength, outgoingRate: 0, incomingRate: 1)
         } else {
             // A plan with a tempo ramp needs the whole glide inside the render,
@@ -596,6 +633,10 @@ enum OfflineTransitionRenderer {
             } else {
                 overlapStartFrames = AVAudioFrameCount((preRoll * sampleRate).rounded())
             }
+            // Each phase may end on a full automation tick. The post-roll's
+            // tick budget also covers its unticked remainder after a ride.
+            try allocateMix(frames: overlapStartFrames + tickedFrames(covering: overlap)
+                + tickedFrames(covering: settleDuration) + tickedFrames(covering: postRoll))
 
             // --- The incoming deck, armed before the first render.
             //
@@ -695,7 +736,6 @@ enum OfflineTransitionRenderer {
                                                   to: tempoRamp.start)))
                     DeckChain.setRate(step.rate, on: from.timePitch)
                     try pump(step.frames)
-                    written += step.frames
                     pumped += step.frames
                     advance(step.frames, outgoingRate: Double(step.rate), incomingRate: 0)
                     mark()
@@ -706,7 +746,6 @@ enum OfflineTransitionRenderer {
                 overlapStart = Double(pumped) / sampleRate
             } else {
                 try pump(overlapStartFrames)
-                written += overlapStartFrames
                 advance(overlapStartFrames, outgoingRate: 1, incomingRate: 0)
                 // The frame count, not `preRoll`: it is what the incoming
                 // deck was scheduled against, and the two differ by up to
@@ -751,7 +790,6 @@ enum OfflineTransitionRenderer {
                 to.apply(frame.incoming)
                 if frame.echoThrown { echoThrown = true }
                 try pump(tickFrames)
-                written += tickFrames
                 advance(tickFrames, outgoingRate: Double(frame.outgoing.rate),
                         incomingRate: Double(frame.incoming.rate))
                 elapsed += tickSeconds
@@ -829,7 +867,6 @@ enum OfflineTransitionRenderer {
                     }
                     rideStep()
                     try pump(tickFrames)
-                    written += tickFrames
                     advance(tickFrames, outgoingRate: 0,
                             incomingRate: Double(restoringRate ? s.incomingRate : 1))
                     settled += tickSeconds
@@ -849,7 +886,6 @@ enum OfflineTransitionRenderer {
             while rideDB != 0, post < postRoll, sinceOverlap < rideRelease {
                 rideStep()
                 try pump(tickFrames)
-                written += tickFrames
                 advance(tickFrames, outgoingRate: 0, incomingRate: 1)
                 post += tickSeconds
                 sinceOverlap += tickSeconds
@@ -866,14 +902,14 @@ enum OfflineTransitionRenderer {
                 (max(0, postRoll - post) * sampleRate).rounded())
             if postFrames > 0 {
                 try pump(postFrames)
-                written += postFrames
                 advance(postFrames, outgoingRate: 0, incomingRate: 1)
             }
             endRideDB = rideDBAtEnd
         }
 
-        return Mix(channels: mix, sampleRate: sampleRate,
-                   duration: Double(written) / sampleRate,
+        guard let mix else { throw RenderError.manualRenderingFailed }
+        return Mix(buffer: mix, sampleRate: sampleRate,
+                   duration: Double(mix.frameLength) / sampleRate,
                    overlapStart: overlapStart, overlapDuration: overlap,
                    outgoing: outgoingTimeline, incoming: incomingTimeline,
                    rideDB: rideDB, rideDBAtEnd: endRideDB,

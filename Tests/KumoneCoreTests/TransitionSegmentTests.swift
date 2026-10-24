@@ -89,15 +89,9 @@ private func renderSegment(_ request: TransitionSegmentRenderer.Request) throws 
         request.planned, outgoing: request.outgoingURL, incoming: request.incomingURL,
         options: options)
     let signature = try #require(TransitionSegment.Signature(plan: request.planned.plan))
-    let frames = try #require(mix.channels.first?.count)
-    let buffer = try #require(AVAudioPCMBuffer(pcmFormat: DeckChain.format,
-                                               frameCapacity: AVAudioFrameCount(frames)))
-    buffer.frameLength = AVAudioFrameCount(frames)
-    for channel in 0..<Int(buffer.format.channelCount) {
-        mix.channels[channel].withUnsafeBufferPointer {
-            buffer.floatChannelData![channel].update(from: $0.baseAddress!, count: frames)
-        }
-    }
+    let buffer = mix.buffer
+    let frames = Int(buffer.frameLength)
+    #expect(frames > 0)
     let geometry = TransitionAutomation.Geometry(plan: request.planned.plan)
     return TransitionSegment(
         buffer: buffer, signature: signature, duration: Double(frames) / mix.sampleRate,

@@ -130,7 +130,8 @@ enum TransitionSegmentRenderer {
         guard mix.lanesApplied != nil else {
             throw SegmentError.scoreNotApplied(mix.scoreFallbackReason)
         }
-        guard let buffer = makeBuffer(mix) else { throw SegmentError.emptyRender }
+        let buffer = mix.buffer
+        guard buffer.frameLength > 0 else { throw SegmentError.emptyRender }
 
         let duration = Double(buffer.frameLength) / mix.sampleRate
         // The engine's own midpoint rule, evaluated on the rendered timeline:
@@ -159,22 +160,5 @@ enum TransitionSegmentRenderer {
         return planned.style.stagedEQ
             ? geometry.swapOffset
             : min(max(p.bassSwapOffset, 0.8), geometry.overlapDuration)
-    }
-
-    private static func makeBuffer(_ mix: OfflineTransitionRenderer.Mix) -> AVAudioPCMBuffer? {
-        let format = DeckChain.format
-        guard let frames = mix.channels.first?.count, frames > 0,
-              let buffer = AVAudioPCMBuffer(pcmFormat: format,
-                                            frameCapacity: AVAudioFrameCount(frames)),
-              let data = buffer.floatChannelData
-        else { return nil }
-        buffer.frameLength = AVAudioFrameCount(frames)
-        for channel in 0..<Int(format.channelCount) {
-            let source = mix.channels[min(channel, mix.channels.count - 1)]
-            source.withUnsafeBufferPointer {
-                data[channel].update(from: $0.baseAddress!, count: min(frames, source.count))
-            }
-        }
-        return buffer
     }
 }

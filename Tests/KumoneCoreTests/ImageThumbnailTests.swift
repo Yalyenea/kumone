@@ -74,6 +74,20 @@ struct ImageThumbnailTests {
         #expect(try cgImage(image).width == 32)
     }
 
+    @Test(arguments: ["", "?param=invalid", "?param=8192y8192"])
+    func originalsAndOversizedHintsHaveABoundedDecode(query: String) async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let data = try largeCover(width: 4_096, height: 2_048)
+        let cache = ImageCache(directory: root, offlineArtwork: { _ in data })
+        let image = try #require(await cache.image(for: URL(string: cover + query)!))
+        let pixels = try cgImage(image)
+        let expectedWidth = query.contains("8192") ? 2_048 : 1_024
+        #expect(pixels.width == expectedWidth)
+        #expect(pixels.height == expectedWidth / 2)
+        #expect(pixels.bytesPerRow * pixels.height <= expectedWidth * expectedWidth * 2)
+    }
+
     private func largeCover(width: Int = 2_048, height: Int = 1_024) throws -> Data {
         let context = try #require(CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
             bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))

@@ -793,12 +793,13 @@ private func aimable(bpm: Double = 120, duration: TimeInterval = 120,
             planned, outgoing: ScoreFixtures.outgoing, incoming: ScoreFixtures.incoming,
             options: options)
         #expect(mix.lanesApplied != nil)
+        let channel = mix.copyChannels()[0]
 
         func peak(_ from: TimeInterval, _ to: TimeInterval) -> Float {
             let rate = mix.sampleRate
-            let lo = max(0, Int(from * rate)), hi = min(mix.channels[0].count, Int(to * rate))
+            let lo = max(0, Int(from * rate)), hi = min(channel.count, Int(to * rate))
             guard lo < hi else { return 0 }
-            return mix.channels[0][lo..<hi].map(abs).max() ?? 0
+            return channel[lo..<hi].map(abs).max() ?? 0
         }
         let seam = mix.overlapStart + 8
         #expect(peak(seam - 1, seam - 0.1) > 0.05, "the outgoing track plays up to the cut")
@@ -825,8 +826,8 @@ private func aimable(bpm: Double = 120, duration: TimeInterval = 120,
             options: options)
         let rate = mix.sampleRate
         let seam = Int((mix.overlapStart + 8) * rate)
-        let after = mix.channels[0][(seam + Int(0.1 * rate))..<min(mix.channels[0].count,
-                                                                   seam + Int(rate))]
+        let channel = mix.copyChannels()[0]
+        let after = channel[(seam + Int(0.1 * rate))..<min(channel.count, seam + Int(rate))]
         // The lane cut the *source*, which is upstream of the deck's delay, so
         // the tail outlives the track it came from.
         #expect((after.map(abs).max() ?? 0) > 0.005,
@@ -940,7 +941,7 @@ private func aimable(bpm: Double = 120, duration: TimeInterval = 120,
                                             style: scoredStyle(score))
             return try OfflineTransitionRenderer.renderMix(
                 planned, outgoing: ScoreFixtures.outgoing, incoming: ScoreFixtures.incoming,
-                options: options).channels
+                options: options).copyChannels()
         }
         let plain = try render(nil)
         let scored = try render(.cutOnOne(throwingEcho: true))
