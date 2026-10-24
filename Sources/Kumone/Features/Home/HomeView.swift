@@ -237,7 +237,6 @@ struct HomeView: View {
                             title: "每日推荐",
                             subtitle: "根据你的口味生成",
                             icon: "calendar",
-                            coverURL: model.dailyFirstCover?.resizedImageURL(512),
                             showsDate: true
                         )
                     }
@@ -249,9 +248,7 @@ struct HomeView: View {
                         FeatureCard(
                             title: "私人漫游",
                             subtitle: "从喜欢的歌开始漫游",
-                            icon: "wave.3.right.circle.fill",
-                            gradient: [Color(red: 0.16, green: 0.20, blue: 0.42),
-                                       Color(red: 0.36, green: 0.24, blue: 0.62)]
+                            icon: "wave.3.right.circle.fill"
                         )
                     }
                     .buttonStyle(.interactiveCard)
@@ -262,9 +259,7 @@ struct HomeView: View {
                         FeatureCard(
                             title: "心动模式",
                             subtitle: "你的红心歌曲和相似推荐",
-                            icon: "heart.circle.fill",
-                            gradient: [Color(red: 0.85, green: 0.19, blue: 0.41),
-                                       Color(red: 0.98, green: 0.42, blue: 0.34)]
+                            icon: "heart.circle.fill"
                         )
                     }
                     .buttonStyle(.interactiveCard)
@@ -393,53 +388,40 @@ struct FeatureCard: View {
     let title: LocalizedStringKey
     let subtitle: LocalizedStringKey
     let icon: String
-    var coverURL: URL?
-    var gradient: [Color] = [Color(red: 0.75, green: 0.16, blue: 0.22),
-                             Color(red: 0.95, green: 0.35, blue: 0.28)]
     var showsDate = false
 
     var body: some View {
         ZStack(alignment: .bottomLeading) {
-            if let coverURL {
-                CachedAsyncImage(url: coverURL)
-                    .frame(width: 230, height: 132)
-                LinearGradient(colors: [.black.opacity(0.1), .black.opacity(0.68)],
-                               startPoint: .top, endPoint: .bottom)
-            } else {
-                LinearGradient(colors: gradient, startPoint: .topLeading, endPoint: .bottomTrailing)
-                RadialGradient(colors: [.white.opacity(0.18), .clear],
-                               center: .topLeading, startRadius: 0, endRadius: 220)
-            }
+            Color.primary.opacity(0.04)
 
             VStack(alignment: .leading, spacing: 3) {
                 ZStack {
                     Image(systemName: icon)
                         .font(.system(size: 22, weight: .medium))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Theme.accent)
                     if showsDate {
                         Text("\(Calendar.current.component(.day, from: .now))")
                             .font(.system(size: 10, weight: .bold))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(Theme.accent)
                             .offset(y: 3)
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 Text(title)
                     .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(.primary)
                 Text(subtitle)
                     .font(.system(size: 11))
-                    .foregroundStyle(.white.opacity(0.75))
+                    .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
             .padding(14)
-            .shadow(color: .black.opacity(0.4), radius: 2, y: 1)
         }
         .frame(width: 230, height: 132)
         .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.large, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: Theme.Radius.large, style: .continuous)
-                .strokeBorder(.white.opacity(0.12), lineWidth: 0.5)
+                .strokeBorder(.primary.opacity(0.06), lineWidth: 0.5)
         )
         .contentShape(Rectangle())
     }

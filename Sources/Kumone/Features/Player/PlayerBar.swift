@@ -4,27 +4,45 @@ struct PlayerBar: View {
     @EnvironmentObject private var player: PlayerService
     @EnvironmentObject private var account: AccountStore
     @EnvironmentObject private var settings: SettingsManager
+    @State private var narrow = false
+    @State private var showMore = false
 
     var body: some View {
         GeometryReader { proxy in
-            let compact = proxy.size.width < 860
-            HStack(spacing: 12) {
-                songInfoSection(compact: compact)
-                    .frame(width: compact ? 180 : 252, alignment: .leading)
-                centerSection
-                    .frame(maxWidth: .infinity)
-                optionsSection(compact: compact)
+            if proxy.size.width < 700 {
+                VStack(spacing: 4) {
+                    HStack(spacing: 8) {
+                        songInfoSection(compact: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        transportControls(compact: true)
+                        Button { showMore.toggle() } label: {
+                            Image(systemName: "ellipsis")
+                                .frame(width: 28, height: 32)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .help("更多播放选项")
+                        .accessibilityLabel("更多播放选项")
+                        .popover(isPresented: $showMore, arrowEdge: .top) { moreOptions }
+                    }
+                    ScrubberLane()
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+            } else {
+                HStack(spacing: 12) {
+                    songInfoSection(compact: false)
+                        .frame(width: min(252, proxy.size.width * 0.25), alignment: .leading)
+                    centerSection.frame(maxWidth: .infinity)
+                    optionsSection(compact: proxy.size.width < 960)
+                }
+                .padding(.horizontal, 18)
             }
-            .padding(.horizontal, 14)
         }
-        .frame(height: Theme.Layout.playerBarHeight)
-        .compatGlass(interactive: true, in: Capsule())
-        .overlay(Capsule().strokeBorder(.primary.opacity(0.06), lineWidth: 0.5))
-        // Keep the capsule clear of the window's rounded corners so the inner
-        // and outer radii don't visually merge (#88).
-        .padding(.horizontal, 20)
-        .padding(.bottom, Theme.Layout.playerBarBottomMargin)
-        .background(alignment: .bottom) { bottomFade }
+        .onGeometryChange(for: Bool.self) { $0.size.width < 700 } action: { narrow = $0 }
+        .frame(height: narrow ? 82 : Theme.Layout.playerBarHeight)
+        .background(Platform.windowBackgroundColor)
+        .overlay(alignment: .top) { Divider() }
     }
 
     // MARK: - Left: artwork + titles + like
@@ -36,7 +54,7 @@ struct PlayerBar: View {
                 HStack(spacing: 6) {
                     MarqueeText(text: player.currentTrack?.name ?? String(localized: "未在播放"))
                         .frame(height: 17)
-                    if player.currentTrack?.fee == 1 {
+                    if !compact, player.currentTrack?.fee == 1 {
                         VIPBadge()
                     }
                 }
@@ -46,7 +64,7 @@ struct PlayerBar: View {
                     .lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            if let track = player.currentTrack {
+            if !compact, let track = player.currentTrack {
                 LikeButton(trackID: track.id)
             }
         }
@@ -66,11 +84,11 @@ struct PlayerBar: View {
                     RoundedRectangle(cornerRadius: Theme.Radius.small, style: .continuous)
                         .strokeBorder(.primary.opacity(0.1), lineWidth: 0.5)
                 )
-                .shadow(color: .black.opacity(0.2), radius: 4, y: 2)
         }
         .buttonStyle(.pressable)
         .noFocusRing()
         .help("打开播放页")
+        .accessibilityLabel("打开播放页")
     }
 
     // MARK: - Queue-order control
@@ -98,52 +116,64 @@ struct PlayerBar: View {
 
     private var centerSection: some View {
         VStack(spacing: 3) {
-            HStack(spacing: 6) {
-                if player.isFMMode {
-                    PlayerIconButton(icon: "trash", size: 12) {
-                        player.fmTrash()
-                    }
-                    .help("不喜欢，换一首")
-                } else {
-                    // AutoMix joins the shuffle cycle when its order setting is enabled.
-                    PlayerIconButton(
-                        icon: queueOrderIcon, size: 12,
-                        isActive: queueOrderIsActive,
-                        action: cycleQueueOrder
-                    )
-                    .help(queueOrderHelp)
-                }
-
-                PlayerIconButton(icon: "backward.fill", size: 14, disabled: player.isFMMode) {
-                    player.previous()
-                }
-
-                playPauseButton
-
-                PlayerIconButton(icon: "forward.fill", size: 14) {
-                    player.next()
-                }
-
-                if player.isFMMode {
-                    Image(systemName: "wave.3.right.circle.fill")
-                        .font(.system(size: 12))
-                        .foregroundStyle(Theme.accent)
-                        .frame(width: 26, height: 26)
-                        .help("私人漫游中")
-                } else {
-                    PlayerIconButton(
-                        icon: player.repeatMode == .one ? "repeat.1" : "repeat", size: 12,
-                        isActive: player.repeatMode != .off
-                    ) {
-                        player.cycleRepeatMode()
-                    }
-                    .help("循环模式")
-                }
-            }
+            transportControls(compact: false)
             ScrubberLane()
         }
         .padding(.vertical, 5)
         .opacity(player.hasCurrentTrack ? 1 : 0.5)
+    }
+
+    private func transportControls(compact: Bool) -> some View {
+        HStack(spacing: 6) {
+            if !compact, player.isFMMode {
+                PlayerIconButton(icon: "trash", size: 12) {
+                    player.fmTrash()
+                }
+                .help("不喜欢，换一首")
+            } else if !compact {
+                // AutoMix joins the shuffle cycle when its order setting is enabled.
+                PlayerIconButton(
+                    icon: queueOrderIcon, size: 12,
+                    isActive: queueOrderIsActive,
+                    action: cycleQueueOrder
+                )
+                .help(queueOrderHelp)
+            }
+
+            if compact, player.isFMMode {
+                PlayerIconButton(icon: "trash", size: 14) { player.fmTrash() }
+                    .help("不喜欢，换一首")
+                    .accessibilityLabel("不喜欢，换一首")
+            } else {
+                PlayerIconButton(icon: "backward.fill", size: 14, disabled: player.isFMMode) {
+                    player.previous()
+                }
+                .accessibilityLabel("上一首")
+            }
+
+            playPauseButton
+
+            PlayerIconButton(icon: "forward.fill", size: 14) {
+                player.next()
+            }
+            .accessibilityLabel("下一首")
+
+            if !compact, player.isFMMode {
+                Image(systemName: "wave.3.right.circle.fill")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.accent)
+                    .frame(width: 26, height: 26)
+                    .help("私人漫游中")
+            } else if !compact {
+                PlayerIconButton(
+                    icon: player.repeatMode == .one ? "repeat.1" : "repeat", size: 12,
+                    isActive: player.repeatMode != .off
+                ) {
+                    player.cycleRepeatMode()
+                }
+                .help("循环模式")
+            }
+        }
     }
 
     private var playPauseButton: some View {
@@ -152,9 +182,8 @@ struct PlayerBar: View {
         } label: {
             ZStack {
                 Circle()
-                    .fill(Theme.accentGradient)
+                    .fill(Theme.accent)
                     .frame(width: 30, height: 30)
-                    .shadow(color: Theme.accent.opacity(0.35), radius: 5, y: 1)
                 if player.isBuffering && player.isPlaying {
                     ProgressView()
                         .controlSize(.small)
@@ -170,6 +199,7 @@ struct PlayerBar: View {
         }
         .buttonStyle(.pressable)
         .padding(.horizontal, 2)
+        .accessibilityLabel(player.isPlaying ? "暂停" : "播放")
     }
 
     // MARK: - Right: quality / panels / volume
@@ -190,8 +220,10 @@ struct PlayerBar: View {
                 isActive: player.activePanel == .lyrics
             ) {
                 player.activePanel = player.activePanel == .lyrics ? nil : .lyrics
+                showMore = false
             }
             .help("歌词")
+            .accessibilityLabel("歌词")
             PlayerIconButton(
                 icon: "inset.filled.bottomthird.square", size: 13,
                 isActive: settings.showDesktopLyrics
@@ -199,30 +231,47 @@ struct PlayerBar: View {
                 settings.showDesktopLyrics.toggle()
             }
             .help("桌面歌词")
+            .accessibilityLabel("桌面歌词")
             PlayerIconButton(
                 icon: "list.bullet", size: 13,
                 isActive: player.activePanel == .queue,
                 disabled: player.isFMMode
             ) {
                 player.activePanel = player.activePanel == .queue ? nil : .queue
+                showMore = false
             }
             .help("播放队列")
+            .accessibilityLabel("播放队列")
             RoutePickerButton(diameter: 26, glyphSize: 13,
                               tint: .secondary, background: .clear)
             VolumeControl()
         }
     }
 
-    private var bottomFade: some View {
-        LinearGradient(
-            colors: [
-                Platform.windowBackgroundColor.opacity(0),
-                Platform.windowBackgroundColor.opacity(0.25),
-            ],
-            startPoint: .top, endPoint: .bottom
-        )
-        .frame(height: 50)
-        .allowsHitTesting(false)
+    private var moreOptions: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("播放选项").font(.headline)
+            if let track = player.currentTrack {
+                HStack {
+                    Text("喜欢这首歌")
+                    Spacer()
+                    LikeButton(trackID: track.id)
+                }
+            }
+            if !player.isFMMode {
+                Button { cycleQueueOrder() } label: {
+                    Label(player.queueOrder.menuTitle, systemImage: queueOrderIcon)
+                }
+                Button { player.cycleRepeatMode() } label: {
+                    Label("循环模式", systemImage: player.repeatMode == .one ? "repeat.1" : "repeat")
+                }
+            }
+            Divider()
+            optionsSection(compact: false)
+        }
+        .buttonStyle(.plain)
+        .padding(16)
+        .frame(minWidth: 260)
     }
 }
 
@@ -341,7 +390,7 @@ struct ScrubberLane: View {
             track
             timeLabel(player.duration)
         }
-        .frame(maxWidth: 460)
+        .frame(maxWidth: .infinity)
     }
 
     private func timeLabel(_ value: TimeInterval) -> some View {

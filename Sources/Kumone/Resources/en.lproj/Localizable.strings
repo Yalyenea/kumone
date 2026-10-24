@@ -2,16 +2,24 @@
 
 /* Sidebar & navigation */
 "推荐" = "Home";
+"搜索" = "Search";
 "精选" = "Explore";
 "漫游" = "Radio";
 "我的" = "Library";
+"我喜欢" = "Liked";
 "我喜欢的音乐" = "Liked Songs";
 "每日推荐" = "Daily Recs";
+"日推" = "Daily";
 "最近播放" = "Recently Played";
 "我的收藏" = "Collections";
 "音乐云盘" = "Cloud Disk";
 "创建的歌单" = "Created Playlists";
 "收藏的歌单" = "Saved Playlists";
+"还没有收藏歌单" = "No saved playlists yet";
+"登录后查看你收藏的歌单" = "Sign in to see your saved playlists";
+"固定到顶栏" = "Pin to top bar";
+"从顶栏移除" = "Unpin from top bar";
+"收起搜索" = "Collapse search";
 "黑胶 VIP" = "VIP";
 "退出登录" = "Sign Out";
 "登录网易云音乐" = "Sign in to NetEase Cloud Music";
@@ -109,6 +117,7 @@
 "链接已复制" = "Link copied";
 "还没有创建歌单" = "No playlists yet";
 "新建歌单" = "New Playlist";
+"我的歌单" = "Created";
 "歌单名称" = "Playlist name";
 "创建" = "Create";
 "创建并收藏" = "Create & Add";
@@ -161,6 +170,7 @@
 "减少推荐" = "Recommend less";
 "已减少推荐" = "Recommendation reduced";
 "登录后查看你喜欢的音乐" = "Sign in to see your liked songs";
+"登录后查看你创建的歌单" = "Log in to see your playlists";
 
 /* Search */
 "综合" = "Top";
@@ -485,3 +495,39 @@
 "同步数据需要更新版本的 Kumone" = "Sync data requires a newer version of Kumone";
 "接续需要登录同一网易云账号" = "Sign in to the same NetEase account to continue playback";
 "iCloud 账号已更改" = "iCloud account changed";
+
+"全歌词" = "Lyrics only";
+"账户与设置" = "Account and settings";
+"登录后同步你的音乐" = "Sign in to sync your music";
+"设置" = "Settings";
+"更多播放选项" = "More playback options";
+"播放选项" = "Playback options";
+"喜欢这首歌" = "Like this song";
+"收起播放页" = "Close Now Playing";
+"切换播放页模式" = "Change Now Playing layout";
+"下载与存储" = "Downloads and storage";
+"同步与账户" = "Sync and account";
+"设置分类" = "Settings category";
+"播放音质" = "Playback quality";
+"无损与 Hi-Res 需要黑胶 VIP。未开通时使用可用音质。" = "Lossless and Hi-Res require VIP. Otherwise, available quality is used.";
+"歌曲解锁" = "Track unlocking";
+"从已启用音源中匹配无版权或下架歌曲。" = "Find unavailable tracks from enabled audio sources.";
+"可用音源" = "Audio sources";
+"界面" = "Interface";
+"背景" = "Background";
+"背景色强度" = "Background intensity";
+"歌词显示" = "Lyrics display";
+"显示翻译" = "Show translation";
+"逐字歌词" = "Word-by-word lyrics";
+"罗马音单独显示一行，汉字读音标在字上方。缺少官方读音时自动生成。" = "Show romanization on a separate line or kana above kanji. Readings are generated when unavailable.";
+"显示桌面歌词" = "Show desktop lyrics";
+"水平居中" = "Center horizontally";
+"歌词悬浮在屏幕上，可拖动调整位置。" = "Lyrics float on your desktop. Drag to reposition them.";
+"账户" = "Account";
+"当前账户" = "Current account";
+"点击快捷键开始录制。Delete 清除，Esc 取消。" = "Click a shortcut to record it. Delete clears it; Esc cancels.";
+"网易云音乐第三方客户端。数据来自网易云音乐。" = "A third-party NetEase Music client. Music data comes from NetEase Music.";
+"黑胶模式" = "Vinyl";
+"经典模式" = "Album artwork";
+"播放页模式" = "Now Playing layout";
+"版本" = "Version";

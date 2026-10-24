@@ -125,11 +125,10 @@ struct AlbumDetailView: View {
     // MARK: - Regular Header
 
     private func regularHeader(_ album: AlbumDetail) -> some View {
-        HStack(alignment: .bottom, spacing: 24) {
+        AdaptiveStack(horizontalMinimum: 560, spacing: 20) {
             CachedAsyncImage(url: album.picUrl?.resizedImageURL(512))
-                .frame(width: 200, height: 200)
+                .frame(width: 160, height: 160)
                 .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.large, style: .continuous))
-                .shadow(color: .black.opacity(0.25), radius: 16, y: 8)
 
             VStack(alignment: .leading, spacing: 8) {
                 Text(album.subType?.isEmpty == false ? album.subType! : String(localized: "专辑"))
@@ -169,13 +168,11 @@ struct AlbumDetailView: View {
                             Text(description)
                                 .font(.system(size: 13))
                                 .padding(16)
-                                .frame(width: 380, alignment: .leading)
+                                .frame(idealWidth: 320, maxWidth: 360, alignment: .leading)
                         }
                         .frame(maxHeight: 400)
                     }
                 }
-
-                Spacer(minLength: 4)
 
                 HStack(spacing: 10) {
                     Button {
@@ -188,7 +185,6 @@ struct AlbumDetailView: View {
                             .padding(.horizontal, 18)
                             .padding(.vertical, 8)
                             .background(Theme.accentGradient, in: Capsule())
-                            .shadow(color: Theme.accent.opacity(0.3), radius: 6, y: 2)
                     }
                     .buttonStyle(.pressable)
 
@@ -211,7 +207,7 @@ struct AlbumDetailView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(height: 210)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var totalDuration: String {
@@ -232,9 +228,9 @@ struct AlbumDetailView: View {
     }
 
     private var loadingHeader: some View {
-        HStack(alignment: .top, spacing: 24) {
+        AdaptiveStack(horizontalMinimum: 560, spacing: 20) {
             SkeletonView(cornerRadius: Theme.Radius.large)
-                .frame(width: 200, height: 200)
+                .frame(width: 160, height: 160)
 
             VStack(alignment: .leading, spacing: 10) {
                 SkeletonView(cornerRadius: 4).frame(width: 80, height: 14)

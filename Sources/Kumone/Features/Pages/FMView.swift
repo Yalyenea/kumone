@@ -5,11 +5,6 @@ struct FMView: View {
     @EnvironmentObject private var player: PlayerService
     @EnvironmentObject private var account: AccountStore
     @Environment(\.openLogin) private var openLogin
-    @Environment(\.colorScheme) private var colorScheme
-
-    private var isPhone: Bool {
-        return false
-    }
 
     var body: some View {
         ZStack {
@@ -31,108 +26,90 @@ struct FMView: View {
     // MARK: - Backdrop
 
     private var backdrop: some View {
-        ZStack {
-            Platform.windowBackgroundColor
-            if let cover = track?.album.picUrl?.resizedImageURL(384) {
-                CachedAsyncImage(url: cover)
-                    .scaledToFill()
-                    .blur(radius: 80)
-                    .opacity(colorScheme == .dark ? 0.45 : 0.3)
-                    .saturation(1.4)
-            }
-            LinearGradient(
-                colors: [.clear, Platform.windowBackgroundColor.opacity(0.6)],
-                startPoint: .top, endPoint: .bottom
-            )
-        }
-        .ignoresSafeArea()
-        .animation(AppAnimation.smooth, value: track?.id)
+        Platform.windowBackgroundColor.ignoresSafeArea()
     }
 
     // MARK: - Content
 
     private var content: some View {
         GeometryReader { geo in
-            let maxDim: CGFloat = isPhone ? 240 : 300
-            let coverDimension = max(110, min(maxDim, min(geo.size.width - 48, geo.size.height * 0.38)))
-            let spacing: CGFloat = isPhone ? (geo.size.height < 520 ? 12 : 20) : 28
+            let coverDimension = max(110, min(260, min(geo.size.width - 48, geo.size.height * 0.38)))
+            let spacing: CGFloat = geo.size.height < 520 ? 16 : 24
 
-            VStack(spacing: spacing) {
-                Spacer()
+            // Short windows scroll instead of clipping the playback controls.
+            ScrollView {
+                VStack(spacing: spacing) {
 
-                ZStack {
-                    if let cover = track?.album.picUrl?.resizedImageURL(768) {
-                        CachedAsyncImage(url: cover)
-                            .frame(width: coverDimension, height: coverDimension)
-                            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                            .shadow(color: .black.opacity(0.35), radius: 28, y: 14)
-                    } else {
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .fill(.quaternary.opacity(0.4))
-                            .frame(width: coverDimension, height: coverDimension)
-                            .overlay(
-                                Image(systemName: "wave.3.right.circle")
-                                    .font(
-                                        .system(
-                                            size: max(32, coverDimension * 0.25),
-                                            weight: .light
+                    ZStack {
+                        if let cover = track?.album.picUrl?.resizedImageURL(768) {
+                            CachedAsyncImage(url: cover)
+                                .frame(width: coverDimension, height: coverDimension)
+                                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        } else {
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .fill(.quaternary.opacity(0.4))
+                                .frame(width: coverDimension, height: coverDimension)
+                                .overlay(
+                                    Image(systemName: "wave.3.right.circle")
+                                        .font(
+                                            .system(
+                                                size: max(32, coverDimension * 0.25),
+                                                weight: .light
+                                            )
                                         )
-                                    )
-                                    .foregroundStyle(.tertiary)
-                            )
-                    }
-                }
-                .scaleEffect(player.isPlaying && player.isFMMode ? 1 : 0.94)
-                .animation(AppAnimation.bouncy, value: player.isPlaying && player.isFMMode)
-
-                VStack(spacing: 6) {
-                    HStack(spacing: 8) {
-                        Text(track?.name ?? String(localized: "私人漫游"))
-                            .font(
-                                .system(
-                                    size: isPhone && geo.size.height < 520 ? 18 : 22,
-                                    weight: .bold
+                                        .foregroundStyle(.tertiary)
                                 )
-                            )
-                            .lineLimit(1)
-                        if track?.fee == 1 {
-                            VIPBadge()
                         }
                     }
-                    Text(track?.artistNames ?? String(localized: "根据你的口味漫游好音乐"))
-                        .font(.system(size: 14))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-                .frame(maxWidth: 420)
+                    .scaleEffect(player.isPlaying && player.isFMMode ? 1 : 0.94)
+                    .animation(AppAnimation.bouncy, value: player.isPlaying && player.isFMMode)
 
-                if player.isFMMode {
-                    controls
-                } else {
-                    Button {
-                        player.startFM()
-                    } label: {
-                        Label("开始漫游", systemImage: "wave.3.right")
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 28)
-                            .padding(.vertical, 12)
-                            .background(Theme.accentGradient, in: Capsule())
-                            .shadow(color: Theme.accent.opacity(0.35), radius: 10, y: 3)
+                    VStack(spacing: 6) {
+                        HStack(spacing: 8) {
+                            Text(track?.name ?? String(localized: "私人漫游"))
+                                .font(
+                                    .system(
+                                        size: geo.size.height < 520 ? 18 : 22,
+                                        weight: .bold
+                                    )
+                                )
+                                .lineLimit(1)
+                            if track?.fee == 1 {
+                                VIPBadge()
+                            }
+                        }
+                        Text(track?.artistNames ?? String(localized: "根据你的口味漫游好音乐"))
+                            .font(.system(size: 14))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
                     }
-                    .buttonStyle(.pressable)
-                }
+                    .frame(maxWidth: 420)
 
-                Spacer()
-                Spacer()
+                    if player.isFMMode {
+                        controls
+                    } else {
+                        Button {
+                            player.startFM()
+                        } label: {
+                            Label("开始漫游", systemImage: "wave.3.right")
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 28)
+                                .padding(.vertical, 12)
+                                .background(Theme.accentGradient, in: Capsule())
+                        }
+                        .buttonStyle(.pressable)
+                    }
+
+                }
+                .padding(24)
+                .frame(maxWidth: .infinity, minHeight: geo.size.height)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .padding(.horizontal, 40)
         }
     }
 
     private var controls: some View {
-        HStack(spacing: 26) {
+        HStack(spacing: 16) {
             Button {
                 player.fmTrash()
             } label: {
@@ -152,7 +129,6 @@ struct FMView: View {
                     Circle()
                         .fill(Theme.accentGradient)
                         .frame(width: 64, height: 64)
-                        .shadow(color: Theme.accent.opacity(0.4), radius: 12, y: 4)
                     Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
                         .font(.system(size: 24, weight: .bold))
                         .foregroundStyle(.white)
@@ -195,5 +171,7 @@ struct FMView: View {
                 .buttonStyle(.borderedProminent)
                 .tint(Theme.accent)
         }
+        .multilineTextAlignment(.center)
+        .padding(24)
     }
 }

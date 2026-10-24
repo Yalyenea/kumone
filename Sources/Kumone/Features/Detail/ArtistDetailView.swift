@@ -135,11 +135,10 @@ struct ArtistDetailView: View {
     // MARK: - Regular Header
 
     private func regularHeader(_ artist: ArtistSummary) -> some View {
-        HStack(alignment: .center, spacing: 28) {
+        AdaptiveStack(horizontalMinimum: 520, spacing: 20) {
             CachedAsyncImage(url: artist.picUrl?.resizedImageURL(512))
-                .frame(width: 180, height: 180)
+                .frame(width: 144, height: 144)
                 .clipShape(Circle())
-                .shadow(color: .black.opacity(0.25), radius: 16, y: 8)
 
             VStack(alignment: .leading, spacing: 8) {
                 Text("歌手")
@@ -147,7 +146,8 @@ struct ArtistDetailView: View {
                     .foregroundStyle(.secondary)
                     .textCase(.uppercase)
                 Text(artist.name)
-                    .font(.largeTitle.weight(.bold))
+                    .font(.title.weight(.bold))
+                    .lineLimit(2)
                 if !artist.alias.isEmpty {
                     Text(artist.alias.joined(separator: " / "))
                         .font(.system(size: 13))
@@ -156,8 +156,6 @@ struct ArtistDetailView: View {
                 Text("\(artist.musicSize) 首歌曲 · \(artist.albumSize) 张专辑")
                     .font(.system(size: 11.5))
                     .foregroundStyle(.tertiary)
-
-                Spacer(minLength: 6)
 
                 HStack(spacing: 10) {
                     Button {
@@ -170,7 +168,6 @@ struct ArtistDetailView: View {
                             .padding(.horizontal, 18)
                             .padding(.vertical, 8)
                             .background(Theme.accentGradient, in: Capsule())
-                            .shadow(color: Theme.accent.opacity(0.3), radius: 6, y: 2)
                     }
                     .buttonStyle(.pressable)
 
@@ -217,10 +214,10 @@ struct ArtistDetailView: View {
     }
 
     private var loadingHeader: some View {
-        HStack(alignment: .center, spacing: 24) {
+        AdaptiveStack(horizontalMinimum: 520, spacing: 20) {
             SkeletonView(cornerRadius: 90)
                 .clipShape(Circle())
-                .frame(width: 180, height: 180)
+                .frame(width: 144, height: 144)
 
             VStack(alignment: .leading, spacing: 10) {
                 SkeletonView(cornerRadius: 4).frame(maxWidth: 180, minHeight: 14, maxHeight: 14)

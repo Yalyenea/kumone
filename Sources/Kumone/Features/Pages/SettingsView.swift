@@ -5,188 +5,279 @@ struct SettingsView: View {
     @EnvironmentObject private var settings: SettingsManager
     @EnvironmentObject private var account: AccountStore
     @Environment(\.openDestination) private var openDestination
-    @Environment(\.dismiss) private var dismiss
-    @State private var navigationPath: [SettingsPage] = []
+    @State private var category: SettingsCategory = .playback
 
-    private enum SettingsPage: Hashable {
-        case storage
-        case shortcuts
+    private enum SettingsCategory: String, CaseIterable, Identifiable {
+        case playback, appearance, lyrics, storage, shortcuts, sync, about
+
+        var id: Self { self }
+
+        var title: String {
+            switch self {
+            case .playback: return String(localized: "播放")
+            case .appearance: return String(localized: "外观")
+            case .lyrics: return String(localized: "歌词")
+            case .storage: return String(localized: "下载与存储")
+            case .shortcuts: return String(localized: "快捷键")
+            case .sync: return String(localized: "同步与账户")
+            case .about: return String(localized: "关于")
+            }
+        }
+
+        var icon: String {
+            switch self {
+            case .playback: return "play.circle"
+            case .appearance: return "paintpalette"
+            case .lyrics: return "text.quote"
+            case .storage: return "internaldrive"
+            case .shortcuts: return "keyboard"
+            case .sync: return "person.crop.circle"
+            case .about: return "info.circle"
+            }
+        }
     }
 
     var body: some View {
-        NavigationStack(path: $navigationPath) { settingsForm }
-            .toolbar {
-                if !navigationPath.isEmpty {
-                    ToolbarItem(placement: .navigation) {
-                        Button {
-                            _ = navigationPath.popLast()
-                        } label: {
-                            Label("返回", systemImage: "chevron.backward")
-                        }
-                        .labelStyle(.iconOnly)
-                    }
+        GeometryReader { geometry in
+            let showsSidebar = geometry.size.width >= 680
+            HStack(spacing: 0) {
+                if showsSidebar {
+                    categorySidebar
+                    Divider()
+                }
+
+                VStack(spacing: 0) {
+                    categoryHeader(showsSidebar: showsSidebar)
+                    Divider()
+                    categoryContent
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
-            .background(SettingsWindowToolbar(onClose: { navigationPath.removeAll() }))
-            .frame(width: 520, height: 620)
-            .overlay(alignment: .top) { SettingsToastOverlay() }
+            .background(Color(nsColor: .windowBackgroundColor))
+        }
+        .frame(minWidth: 420, idealWidth: 760, minHeight: 500, idealHeight: 650)
+        .background(SettingsWindowToolbar(onClose: { category = .playback }))
+        .overlay(alignment: .top) { SettingsToastOverlay() }
     }
 
-    private var settingsForm: some View {
-        Form {
-            Section("播放") {
-                Picker("音质", selection: $settings.audioQuality) {
-                    ForEach(AudioQuality.allCases) { quality in
-                        Text(quality.displayName).tag(quality)
+    private var categorySidebar: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("设置")
+                .font(.headline)
+                .padding(.horizontal, 10)
+                .padding(.top, 6)
+                .padding(.bottom, 12)
+
+            ForEach(SettingsCategory.allCases) { item in
+                Button {
+                    category = item
+                } label: {
+                    HStack(spacing: 9) {
+                        Image(systemName: item.icon)
+                            .frame(width: 18)
+                        Text(item.title)
+                        Spacer(minLength: 0)
+                    }
+                    .font(.body.weight(category == item ? .medium : .regular))
+                    .foregroundStyle(category == item ? Theme.accent : .primary)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 9)
+                    .contentShape(Rectangle())
+                    .background(category == item ? Theme.accent.opacity(0.1) : .clear,
+                                in: RoundedRectangle(cornerRadius: 6))
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(category == item ? .isSelected : [])
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .frame(width: 172)
+        .frame(maxHeight: .infinity)
+        .background(Color(nsColor: .controlBackgroundColor))
+    }
+
+    private func categoryHeader(showsSidebar: Bool) -> some View {
+        HStack {
+            if showsSidebar {
+                Label(category.title, systemImage: category.icon)
+                    .font(.title3.weight(.semibold))
+            } else {
+                // A menu keeps every category reachable without squeezing a sidebar.
+                Picker("设置分类", selection: $category) {
+                    ForEach(SettingsCategory.allCases) { item in
+                        Label(item.title, systemImage: item.icon).tag(item)
                     }
                 }
-                Text("无损与 Hi-Res 需要黑胶 VIP，未开通时自动回落到可用音质")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Toggle("灰色歌曲解锁", isOn: $settings.enableUnblock)
-                Text("无版权或下架歌曲将从已启用音源中匹配播放")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .fixedSize()
+                .accessibilityLabel("设置分类")
             }
+            Spacer()
+        }
+        .padding(.horizontal, 20)
+        .frame(height: 58)
+    }
 
-            AutoMixSettingsSection()
+    @ViewBuilder
+    private var categoryContent: some View {
+        switch category {
+        case .playback:
+            Form {
+                Section("音质") {
+                    Picker("播放音质", selection: $settings.audioQuality) {
+                        ForEach(AudioQuality.allCases) { quality in
+                            Text(quality.displayName).tag(quality)
+                        }
+                    }
+                    settingsHint("无损与 Hi-Res 需要黑胶 VIP。未开通时使用可用音质。")
+                }
 
-            if settings.enableUnblock {
-                Section {
-                    ForEach(AudioSourceID.allCases, id: \.self) { source in
-                        Toggle(source.displayName, isOn: Binding(
-                            get: { settings.enabledAudioSourceIDs.contains(source) },
-                            set: { isEnabled in
-                                if isEnabled {
-                                    settings.enabledAudioSourceIDs.insert(source)
-                                } else {
-                                    settings.enabledAudioSourceIDs.remove(source)
+                AutoMixSettingsSection()
+
+                Section("歌曲解锁") {
+                    Toggle("灰色歌曲解锁", isOn: $settings.enableUnblock)
+                    settingsHint("从已启用音源中匹配无版权或下架歌曲。")
+                }
+
+                if settings.enableUnblock {
+                    Section("可用音源") {
+                        ForEach(AudioSourceID.allCases, id: \.self) { source in
+                            Toggle(source.displayName, isOn: Binding(
+                                get: { settings.enabledAudioSourceIDs.contains(source) },
+                                set: { isEnabled in
+                                    if isEnabled {
+                                        settings.enabledAudioSourceIDs.insert(source)
+                                    } else {
+                                        settings.enabledAudioSourceIDs.remove(source)
+                                    }
                                 }
+                            ))
+                        }
+                    }
+                }
+            }
+            .formStyle(.grouped)
+
+        case .appearance:
+            Form {
+                Section("界面") {
+                    Picker("主题", selection: $settings.appearance) {
+                        ForEach(AppAppearance.allCases) { appearance in
+                            Text(appearance.displayName).tag(appearance)
+                        }
+                    }
+                    Picker("播放页模式", selection: $settings.nowPlayingMode) {
+                        ForEach(NowPlayingMode.allCases) { mode in
+                            Text(mode.displayName).tag(mode)
+                        }
+                    }
+                }
+
+                Section("背景") {
+                    Toggle("主界面环境色", isOn: $settings.showMainWindowAmbientBackground)
+                    if settings.showMainWindowAmbientBackground {
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                Text("背景色强度")
+                                Spacer()
+                                Text("\(Int(settings.mainWindowAmbientBackgroundIntensity * 100))%")
+                                    .foregroundStyle(.secondary)
+                                    .monospacedDigit()
                             }
-                        ))
-                    }
-                } header: {
-                    Text("音源")
-                }
-            }
-
-            Section("外观") {
-                Picker("主题", selection: $settings.appearance) {
-                    ForEach(AppAppearance.allCases) { appearance in
-                        Text(appearance.displayName).tag(appearance)
-                    }
-                }
-                Picker("播放页模式", selection: $settings.nowPlayingMode) {
-                    Text(NowPlayingMode.vinyl.displayName).tag(NowPlayingMode.vinyl)
-                    Text(NowPlayingMode.classic.displayName).tag(NowPlayingMode.classic)
-                }
-                Toggle("显示歌词翻译", isOn: $settings.showLyricsTranslation)
-                Toggle("逐字歌词（卡拉OK）", isOn: $settings.verbatimLyrics)
-                Picker("日文歌词读音", selection: $settings.lyricsAnnotation) {
-                    ForEach(LyricsAnnotation.allCases) { annotation in
-                        Text(annotation.displayName).tag(annotation)
-                    }
-                }
-                Text("罗马音在歌词上方另起一行，汉字读音把假名标在汉字正上方；缺少官方罗马音时自动生成读音")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Toggle("主界面环境色", isOn: $settings.showMainWindowAmbientBackground)
-                if settings.showMainWindowAmbientBackground {
-                    VStack(alignment: .leading, spacing: 6) {
-                        HStack {
-                            Text("背景色强度")
-                            Spacer()
-                            Text("\(Int(settings.mainWindowAmbientBackgroundIntensity * 100))%")
-                                .foregroundStyle(.secondary)
-                        }
-                        Slider(
-                            value: $settings.mainWindowAmbientBackgroundIntensity,
-                            in: SettingsManager.mainWindowAmbientBackgroundIntensityRange,
-                            step: 0.1
-                        )
-                        HStack {
-                            Text("50%")
-                            Spacer()
-                            Text("150%")
-                        }
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    }
-                }
-                Toggle("桌面歌词", isOn: $settings.showDesktopLyrics)
-                if settings.showDesktopLyrics {
-                    Toggle("桌面歌词水平居中", isOn: $settings.desktopLyricsCentered)
-                }
-                Text("在屏幕上悬浮显示当前歌词，可拖动调整位置")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Section("存储") {
-                NavigationLink(value: SettingsPage.storage) {
-                    Label("存储空间", systemImage: "internaldrive")
-                }
-            }
-
-            Section("通用") {
-                NavigationLink(value: SettingsPage.shortcuts) {
-                    Label("快捷键", systemImage: "keyboard")
-                }
-            }
-
-            SyncSettingsSection()
-
-            Section("账号") {
-                if let profile = account.profile {
-                    LabeledContent("当前账号", value: profile.nickname)
-                    Button("退出登录", role: .destructive) {
-                        Task {
-                            do { try await AccountStore.shared.logout() }
-                            catch { ToastCenter.shared.show(error.localizedDescription) }
+                            Slider(
+                                value: $settings.mainWindowAmbientBackgroundIntensity,
+                                in: SettingsManager.mainWindowAmbientBackgroundIntensityRange,
+                                step: 0.1
+                            )
+                            .accessibilityLabel("背景色强度")
+                            HStack {
+                                Text("50%")
+                                Spacer()
+                                Text("150%")
+                            }
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                         }
                     }
-                } else {
-                    Text("未登录")
-                        .foregroundStyle(.secondary)
                 }
             }
+            .formStyle(.grouped)
 
-            Section("关于") {
-                LabeledContent("Kumone", value: appVersion)
-                Text("网易云音乐第三方客户端 · 数据来自网易云音乐")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+        case .lyrics:
+            Form {
+                Section("歌词显示") {
+                    Toggle("显示翻译", isOn: $settings.showLyricsTranslation)
+                    Toggle("逐字歌词", isOn: $settings.verbatimLyrics)
+                    Picker("日文歌词读音", selection: $settings.lyricsAnnotation) {
+                        ForEach(LyricsAnnotation.allCases) { annotation in
+                            Text(annotation.displayName).tag(annotation)
+                        }
+                    }
+                    settingsHint("罗马音单独显示一行，汉字读音标在字上方。缺少官方读音时自动生成。")
+                }
+
+                Section("桌面歌词") {
+                    Toggle("显示桌面歌词", isOn: $settings.showDesktopLyrics)
+                    if settings.showDesktopLyrics {
+                        Toggle("水平居中", isOn: $settings.desktopLyricsCentered)
+                    }
+                    settingsHint("歌词悬浮在屏幕上，可拖动调整位置。")
+                }
             }
+            .formStyle(.grouped)
+
+        case .storage:
+            StorageSpaceView {
+                openDestination(.downloaded)
+            }
+
+        case .shortcuts:
+            ShortcutSettingsView()
+
+        case .sync:
+            Form {
+                SyncSettingsSection()
+
+                Section("账户") {
+                    if let profile = account.profile {
+                        LabeledContent("当前账户", value: profile.nickname)
+                        Button("退出登录", role: .destructive) {
+                            Task {
+                                do { try await AccountStore.shared.logout() }
+                                catch { ToastCenter.shared.show(error.localizedDescription) }
+                            }
+                        }
+                    } else {
+                        Text("未登录")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .formStyle(.grouped)
+
+        case .about:
+            Form {
+                Section("Kumone") {
+                    LabeledContent("版本", value: appVersion)
+                    settingsHint("网易云音乐第三方客户端。数据来自网易云音乐。")
+                }
+            }
+            .formStyle(.grouped)
         }
-        .formStyle(.grouped)
-        .navigationDestination(for: SettingsPage.self) { page in
-            Group {
-                switch page {
-                case .storage:
-                    StorageSpaceView {
-                        openDestination(.downloaded)
-                    }
-                case .shortcuts:
-                    ShortcutSettingsView()
-                }
-            }
-            .navigationBarBackButtonHidden()
-            .toolbar(removing: .title)
-            .toolbar {
-                ToolbarItem(placement: .principal) {
-                    switch page {
-                    case .storage: Text("存储空间").font(.headline)
-                    case .shortcuts: Text("快捷键").font(.headline)
-                    }
-                }
-            }
-        }
+    }
+
+    private func settingsHint(_ text: LocalizedStringKey) -> some View {
+        Text(text)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     private var appVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
     }
-
 }
 
 private struct SettingsToastOverlay: View {
@@ -206,8 +297,7 @@ private struct SettingsToastOverlay: View {
     }
 }
 
-/// Keep navigation and the title in the native, compact titlebar toolbar.
-/// Settings scenes retain their view state when closed, so reset the path here.
+/// Keep the settings titlebar compact and reset the category after closing.
 struct SettingsWindowToolbar: NSViewRepresentable {
     let onClose: () -> Void
 
@@ -236,9 +326,13 @@ struct SettingsWindowToolbar: NSViewRepresentable {
         }
 
         func updateToolbar() {
-            guard let window, window.toolbarStyle != .unifiedCompact else { return }
+            guard let window,
+                  window.toolbarStyle != .unifiedCompact || !window.styleMask.contains(.resizable) else { return }
             DispatchQueue.main.async { [weak self] in
-                guard let window = self?.window, window.toolbarStyle != .unifiedCompact else { return }
+                guard let window = self?.window else { return }
+                // Settings scenes omit the resize handle even with contentMinSize.
+                // Enable it here so the category layout can follow the window width.
+                window.styleMask.insert(.resizable)
                 window.toolbarStyle = .unifiedCompact
             }
         }

@@ -14,11 +14,10 @@ struct MainWindow: View {
     @ObservedObject private var windowVisibility = MainWindowVisibility.shared
 
     @StateObject private var artworkStore = NowPlayingArtworkStore()
-    @State private var selection: SidebarItem = .home
+    @State private var selection: RootPage = .home
     @State private var localPath: [Destination] = []
     @State private var showLogin = false
     @State private var mainColumnGeometry = MainColumnGeometry()
-    @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var nowPlayingChromeHidden = false
     @State private var nowPlayingChromeFadedOut = false
     @State private var nowPlayingChromeTask: Task<Void, Never>?
@@ -43,18 +42,14 @@ struct MainWindow: View {
     }
 
     var body: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
-            SidebarView(selection: $selection, showLogin: $showLogin)
-                .navigationSplitViewColumnWidth(min: 200, ideal: Theme.Layout.sidebarWidth, max: 280)
-        } detail: {
-            detailStack
-                .onGeometryChange(for: MainColumnGeometry.Layout.self) { proxy in
-                    MainColumnGeometry.Layout(frame: proxy.frame(in: .named("mainWindow")))
-                } action: { layout in
-                    mainColumnGeometry.update(layout)
-                }
-        }
-        .navigationSplitViewStyle(.balanced)
+        detailStack
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .onGeometryChange(for: MainColumnGeometry.Layout.self) { proxy in
+                MainColumnGeometry.Layout(frame: proxy.frame(in: .named("mainWindow")))
+            } action: { layout in
+                mainColumnGeometry.update(layout)
+            }
+        .background(Platform.windowBackgroundColor)
         .coordinateSpace(name: "mainWindow")
         .overlay(alignment: .trailing) {
             if settings.showMainWindowAmbientBackground {
@@ -66,39 +61,22 @@ struct MainWindow: View {
             }
         }
         .toolbar {
-            if nowPlayingChromeHidden {
-                // Immersive now-playing page: the real items step aside (the
-                // sidebar toggle is hidden by the coordinator; `.toolbar(
-                // removing:)` is a no-op for the toggle the split view
-                // injects), but a 1pt clear placeholder keeps the NSToolbar
-                // alive. SwiftUI tears the whole toolbar — and with it the
-                // taller titlebar that parks the window buttons at their home
-                // position — down when its last item leaves (#128).
+            // Keep the compact titlebar's height stable in both playback views.
+            if #available(macOS 26.0, *) {
                 ToolbarItem(placement: .automatic) {
                     Color.clear.frame(width: 1, height: 1)
                 }
+                // A transparent item still gets a glass border on macOS 26.
+                .sharedBackgroundVisibility(.hidden)
             } else {
-                if #available(macOS 26.0, *) {
-                    ToolbarItem(placement: .primaryAction) {
-                        SearchFieldView { query in
-                            path.append(Destination.search(query))
-                        }
-                    }
-                    // Hide the Liquid Glass shared toolbar background behind the
-                    // custom capsule search field, else it double-backgrounds on
-                    // macOS 26 (dropped by #86's toolbar rewrite, restored here).
-                    .sharedBackgroundVisibility(.hidden)
-                } else {
-                    ToolbarItem(placement: .primaryAction) {
-                        SearchFieldView { query in
-                            path.append(Destination.search(query))
-                        }
-                    }
+                ToolbarItem(placement: .automatic) {
+                    Color.clear.frame(width: 1, height: 1)
                 }
             }
         }
-        // Immersive now-playing page: its real toolbar items (sidebar toggle,
-        // title, search field) step aside, and a placeholder keeps the
+        .toolbar(removing: .title)
+        // Immersive now-playing page: its real toolbar items (navigation,
+        // account, search field) step aside, and a placeholder keeps the
         // NSToolbar — and the titlebar height that positions the window
         // buttons at the home position — alive (#128). Only full screen drops
         // the toolbar itself, where the system would otherwise pin it over the
@@ -107,6 +85,11 @@ struct MainWindow: View {
         .background(
             MainWindowConfigurator(
                 geometry: mainColumnGeometry,
+                titlebarContent: AnyView(
+                    MainWindowHeader(selection: $selection, showLogin: $showLogin, path: pathBinding)
+                        .environmentObject(account)
+                        .environmentObject(settings)
+                ),
                 ambientConfiguration: MainWindowAmbientConfiguration(
                     showsAmbientBackground: settings.showMainWindowAmbientBackground,
                     showsTitlebarAmbientBackground: !nowPlayingChromeHidden,
@@ -119,7 +102,7 @@ struct MainWindow: View {
                 toolbarHidden: nowPlayingChromeHidden
             )
         )
-        .playerChrome(geometry: mainColumnGeometry)
+        .playerChrome()
         .modifier(OfflinePlaybackAlert(player: player, onDownloads: { openDestination(.downloaded) }))
         .modifier(MeteredDownloadAlert())
         .environment(\.openLogin, { showLogin = true })
@@ -159,7 +142,7 @@ struct MainWindow: View {
             if player.showNowPlaying {
                 // Quiet the titlebar as the page rises to cover it: hide the
                 // title text, then swap the toolbar's items (search field,
-                // sidebar toggle) for a placeholder once nothing is left to
+                // navigation) for a placeholder once nothing is left to
                 // see — snapping them away at once reads as a glitch above
                 // the rising page. The buttons stay: this page is the whole
                 // window, so they are its only way to close, dock or zoom it
@@ -212,6 +195,8 @@ struct MainWindow: View {
             rootView
                 .playerContentInset()
                 .appDestinations()
+                .toolbar(removing: .title)
+                .navigationBarBackButtonHidden(true)
         }
         .onChange(of: selection) { _ in
             path = []
@@ -242,35 +227,42 @@ struct MainWindow: View {
             ExploreView()
         case .fm:
             FMView()
-        case .search:
-            SearchView(query: "")
         case .likedSongs:
             if let playlist = account.likedSongsPlaylist {
                 PlaylistDetailView(playlistID: playlist.id, isLikedList: true)
                     .id(playlist.id)
             } else {
-                loginPrompt
+                loginPrompt("登录后查看你喜欢的音乐")
             }
         case .daily:
             DailySongsView()
+        case .created:
+            if account.hasAuthCookie {
+                CreatedPlaylistsView()
+            } else {
+                loginPrompt("登录后查看你创建的歌单")
+            }
         case .recents:
             RecentsView()
         case .collections:
             CollectionsView()
         case .cloud:
             CloudView()
-        case .playlist(let id):
-            PlaylistDetailView(playlistID: id)
-                .id(id)
+        case .saved:
+            if account.hasAuthCookie {
+                SavedPlaylistsView()
+            } else {
+                loginPrompt("登录后查看你收藏的歌单")
+            }
         }
     }
 
-    private var loginPrompt: some View {
+    private func loginPrompt(_ message: LocalizedStringKey) -> some View {
         VStack(spacing: 16) {
             Image(systemName: "heart.circle")
                 .font(.system(size: 48))
                 .foregroundStyle(.tertiary)
-            Text("登录后查看你喜欢的音乐")
+            Text(message)
                 .font(.headline)
             Button("登录") { showLogin = true }
                 .buttonStyle(.borderedProminent)
@@ -316,6 +308,7 @@ struct ArrowCursorOverride: NSViewRepresentable {
 /// forwarded untouched to SwiftUI's own delegate.
 struct MainWindowConfigurator: NSViewRepresentable {
     @ObservedObject var geometry: MainColumnGeometry
+    let titlebarContent: AnyView
     let ambientConfiguration: MainWindowAmbientConfiguration
     /// Hides the titlebar text while the immersive page covers the window;
     /// the window buttons stay on top of the page (#128).
@@ -332,6 +325,7 @@ struct MainWindowConfigurator: NSViewRepresentable {
         let view = NSView(frame: .zero)
         let configuration = resolvedAmbientConfiguration
         DispatchQueue.main.async {
+            context.coordinator.setTitlebarContent(titlebarContent)
             context.coordinator.requestAmbientBackgroundConfiguration(
                 from: view,
                 ambientConfiguration: configuration
@@ -345,6 +339,7 @@ struct MainWindowConfigurator: NSViewRepresentable {
     func updateNSView(_ nsView: NSView, context: Context) {
         let configuration = resolvedAmbientConfiguration
         DispatchQueue.main.async {
+            context.coordinator.setTitlebarContent(titlebarContent)
             context.coordinator.requestAmbientBackgroundConfiguration(
                 from: nsView,
                 ambientConfiguration: configuration
@@ -365,6 +360,8 @@ struct MainWindowConfigurator: NSViewRepresentable {
         private(set) weak var window: NSWindow?
         private weak var forwardee: NSWindowDelegate?
         private let ambientAppearance = MainWindowAmbientAppearanceController()
+        private let titlebar = MainWindowTitlebar()
+        private var titlebarContent = AnyView(EmptyView())
         private weak var configurationHost: NSView?
         private var pendingAmbientConfiguration: MainWindowAmbientConfiguration?
         private var hasScheduledAmbientConfiguration = false
@@ -376,6 +373,13 @@ struct MainWindowConfigurator: NSViewRepresentable {
         /// Separator items the page hides (they have no view to swap).
         private var hiddenToolbarSeparatorIdentifiers: Set<String> = []
 
+        func setTitlebarContent(_ content: AnyView) {
+            titlebarContent = content
+            if let window {
+                titlebar.update(content: content, in: window)
+            }
+        }
+
         /// Hides the titlebar text while the immersive page covers the window.
         /// The toolbar is dropped separately, and the window buttons stay: this
         /// page is the whole window, so they are its only way to close,
@@ -385,7 +389,8 @@ struct MainWindowConfigurator: NSViewRepresentable {
         func setTitlebarFadedOut(_ fadedOut: Bool) {
             guard fadedOut != titlebarFadedOut else { return }
             titlebarFadedOut = fadedOut
-            window?.titleVisibility = fadedOut ? .hidden : .visible
+            titlebar.setFadedOut(fadedOut)
+            window?.titleVisibility = .hidden
             ambientAppearance.setTitlebarMaskFadedOut(fadedOut)
         }
 
@@ -468,6 +473,8 @@ struct MainWindowConfigurator: NSViewRepresentable {
         func attach(to window: NSWindow?) {
             guard let window, self.window == nil else { return }
             self.window = window
+            titlebar.update(content: titlebarContent, in: window)
+            titlebar.setFadedOut(titlebarFadedOut)
             window.isReleasedWhenClosed = false
             // Insert ourselves as the delegate, forwarding to whatever
             // delegate SwiftUI installed.
@@ -546,7 +553,7 @@ struct MainWindowConfigurator: NSViewRepresentable {
         }
 
         private func reassertChromeState() {
-            window?.titleVisibility = titlebarFadedOut ? .hidden : .visible
+            window?.titleVisibility = .hidden
             applyWindowToolbarVisibility()
             refreshWindowVisibility()
         }
@@ -578,6 +585,7 @@ struct MainWindowConfigurator: NSViewRepresentable {
             forwardee?.windowDidUpdate?(notification)
             if let window {
                 ambientAppearance.updateLayout(in: window)
+                titlebar.updateLayout(in: window)
             }
             refreshWindowVisibility()
         }
@@ -586,6 +594,7 @@ struct MainWindowConfigurator: NSViewRepresentable {
             forwardee?.windowDidResize?(notification)
             if let window {
                 ambientAppearance.updateLayout(in: window)
+                titlebar.updateLayout(in: window)
             }
             refreshWindowVisibility()
         }
@@ -616,51 +625,6 @@ private final class HiddenToolbarItemView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
-// MARK: - Search field
-
-struct SearchFieldView: View {
-    let onSubmit: (String) -> Void
-
-    @State private var text = ""
-    @State private var placeholder = "搜索音乐、歌手、专辑"
-    @FocusState private var focused: Bool
-
-    var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(.secondary)
-            TextField(placeholder, text: $text)
-                .textFieldStyle(.plain)
-                .font(.system(size: 12.5))
-                .focused($focused)
-                .frame(width: 168)
-                .onSubmit {
-                    let query = text.trimmingCharacters(in: .whitespaces)
-                    let effective = query.isEmpty ? placeholderQuery : query
-                    guard !effective.isEmpty else { return }
-                    onSubmit(effective)
-                    focused = false
-                }
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 5)
-        .background(.primary.opacity(0.05), in: Capsule())
-        .overlay(Capsule().strokeBorder(.primary.opacity(focused ? 0.18 : 0.08), lineWidth: 1))
-        // Keep the capsule off the window's rounded top-right corner (#88).
-        .padding(.trailing, 8)
-        .animation(AppAnimation.quick, value: focused)
-        .task {
-            if let keyword = try? await NeteaseAPI.searchDefaultKeyword(), !keyword.isEmpty {
-                placeholder = keyword
-                placeholderQuery = keyword
-            }
-        }
-    }
-
-    @State private var placeholderQuery = ""
-}
-
 // MARK: - Toast
 
 struct ToastView: View {
@@ -671,7 +635,7 @@ struct ToastView: View {
             .font(.system(size: 12.5, weight: .medium))
             .padding(.horizontal, 16)
             .padding(.vertical, 9)
-            .compatGlass(in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .panelSurface(in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             .shadow(color: .black.opacity(0.15), radius: 8, y: 4)
     }
 }

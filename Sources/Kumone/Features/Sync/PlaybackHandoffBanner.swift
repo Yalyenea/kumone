@@ -76,7 +76,7 @@ struct PlaybackHandoffBanner: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            .background(.ultraThinMaterial, in: Capsule())
+            .background(Platform.windowBackgroundColor, in: RoundedRectangle(cornerRadius: Theme.Radius.small))
             .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5))
             .shadow(color: .black.opacity(0.12), radius: 10, y: 3)
             .padding(.horizontal, 16)

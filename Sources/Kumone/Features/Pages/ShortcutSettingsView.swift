@@ -26,6 +26,13 @@ struct ShortcutSettingsView: View {
             .pickerStyle(.segmented)
             .padding()
 
+            Text("点击快捷键开始录制。Delete 清除，Esc 取消。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 20)
+                .padding(.bottom, 4)
+
             Form {
                 Section {
                     ForEach(ShortcutAction.allCases) { action in

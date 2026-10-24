@@ -50,50 +50,36 @@ struct DailySongsView: View {
     }
 
     private var header: some View {
-        ZStack(alignment: .bottomLeading) {
-            CachedAsyncImage(url: tracks.first?.album.picUrl?.resizedImageURL(1024))
-                .frame(height: 220)
-                .frame(maxWidth: .infinity)
-                .clipped()
-            LinearGradient(colors: [.black.opacity(0.15), .black.opacity(0.72)],
-                           startPoint: .top, endPoint: .bottom)
-
-            HStack(alignment: .bottom) {
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "calendar")
-                            .font(.system(size: 26, weight: .medium))
-                        Text(dateString)
-                            .font(.system(size: 14, weight: .medium))
-                            .opacity(0.85)
-                    }
-                    Text("每日推荐")
-                        .font(.system(size: 30, weight: .bold))
-                    Text("根据你的音乐口味 · 每天 6:00 更新")
-                        .font(.system(size: 12))
-                        .opacity(0.7)
+        AdaptiveStack(horizontalMinimum: 480, spacing: 16) {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    Image(systemName: "calendar")
+                        .font(.system(size: 26, weight: .medium))
+                    Text(dateString)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(.secondary)
                 }
-                .foregroundStyle(.white)
-                .shadow(color: .black.opacity(0.4), radius: 3, y: 1)
-
-                Spacer()
-
-                Button {
-                    player.play(tracks: tracks, source: .daily, context: .daily)
-                } label: {
-                    Label("播放全部", systemImage: "play.fill")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 18)
-                        .padding(.vertical, 9)
-                        .background(Theme.accentGradient, in: Capsule())
-                        .shadow(color: .black.opacity(0.3), radius: 6, y: 2)
-                }
-                .buttonStyle(.pressable)
+                Text("每日推荐")
+                    .font(.title.weight(.bold))
+                Text("根据你的音乐口味 · 每天 6:00 更新")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
             }
-            .padding(20)
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Button {
+                player.play(tracks: tracks, source: .daily, context: .daily)
+            } label: {
+                Label("播放全部", systemImage: "play.fill")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 9)
+                    .background(Theme.accentGradient, in: Capsule())
+            }
+            .buttonStyle(.pressable)
         }
-        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.large, style: .continuous))
+        .padding(.vertical, 12)
     }
 
     private var dateString: String {

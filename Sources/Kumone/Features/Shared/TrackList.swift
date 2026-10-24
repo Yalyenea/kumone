@@ -65,83 +65,79 @@ struct TrackRow: View {
     private var isPlayable: Bool { playability == .playable || isOffline }
     private var needsNetwork: Bool { downloadState.needsNetwork }
     private var showsArtwork: Bool { style != .albumTrack }
-
-
-
-
-
     var body: some View {
-        HStack(spacing: 12) {
-
+        GeometryReader { geometry in
+            HStack(spacing: geometry.size.width < 440 ? 8 : 12) {
                 leadingIndicator
 
-
-            if showsArtwork {
-                artwork
-            }
-
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text(track.name)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(isCurrent ? Theme.accent : .primary)
-                        .lineLimit(1)
-                    if let subtitle = track.subtitle {
-                        Text("(\(subtitle))")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.tertiary)
-                            .lineLimit(1)
-                    }
-                    if track.fee == 1 {
-                        VIPBadge()
-                    }
+                if showsArtwork {
+                    artwork
                 }
-                artistLinks
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
 
-            if style == .full {
-                if track.album.id > 0, !track.album.name.isEmpty {
-                    Button {
-                        openDestination(.album(track.album.id))
-                    } label: {
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text(track.name)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(isCurrent ? Theme.accent : .primary)
+                            .lineLimit(1)
+                        if let subtitle = track.subtitle, geometry.size.width >= 440 {
+                            Text("(\(subtitle))")
+                                .font(.system(size: 12))
+                                .foregroundStyle(.tertiary)
+                                .lineLimit(1)
+                        }
+                        if track.fee == 1 {
+                            VIPBadge()
+                        }
+                    }
+                    artistLinks
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                // Keep the song and its actions readable before showing secondary columns.
+                if style == .full, geometry.size.width >= 620 {
+                    if track.album.id > 0, !track.album.name.isEmpty {
+                        Button {
+                            openDestination(.album(track.album.id))
+                        } label: {
+                            Text(track.album.name)
+                                .font(.system(size: 12))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("打开专辑：\(track.album.name)")
+                        .frame(maxWidth: 220, alignment: .leading)
+                    } else {
                         Text(track.album.name)
                             .font(.system(size: 12))
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
+                            .frame(maxWidth: 220, alignment: .leading)
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("打开专辑：\(track.album.name)")
-                    .frame(maxWidth: 220, alignment: .leading)
-                } else {
-                    Text(track.album.name)
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .frame(maxWidth: 220, alignment: .leading)
                 }
-            }
 
-            if let reason = playability.reason, !isOffline {
-                Text(reason)
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(.tertiary)
-                    .padding(.horizontal, 5)
-                    .padding(.vertical, 2)
-                    .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 4))
-            }
+                if let reason = playability.reason, !isOffline, geometry.size.width >= 520 {
+                    Text(reason)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.tertiary)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 4))
+                }
 
-            if let trailingText {
-                Text(trailingText)
-                    .font(.system(size: 11).monospacedDigit())
-                    .foregroundStyle(.tertiary)
-            }
+                if let trailingText, geometry.size.width >= 440 {
+                    Text(trailingText)
+                        .font(.system(size: 11).monospacedDigit())
+                        .foregroundStyle(.tertiary)
+                }
 
-            likeAndDuration
-                .padding(.leading, 0)
+                likeAndDuration
+                    .padding(.leading, 0)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 5)
         // Keep the row and its virtual scroll extent in agreement (#3).
         .frame(height: rowHeight)
         .opacity(isPlayable && !needsNetwork ? 1 : 0.45)
@@ -169,8 +165,7 @@ struct TrackRow: View {
     }
 
     private func playSelectedTrack() {
-        if needsNetwork { ToastCenter.shared.show(String(localized: "此歌曲需要联网播放")) }
-        else if isPlayable { onPlay() }
+        if needsNetwork { ToastCenter.shared.show(String(localized: "此歌曲需要联网播放")) } else if isPlayable { onPlay() }
     }
 
     @ViewBuilder

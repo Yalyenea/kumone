@@ -18,7 +18,7 @@ struct LyricsPanel: View {
         }
         .frame(width: 320)
         .frame(maxHeight: .infinity)
-        .compatGlass(interactive: true, in: RoundedRectangle(cornerRadius: Theme.Radius.panel, style: .continuous))
+        .panelSurface(in: RoundedRectangle(cornerRadius: Theme.Radius.panel, style: .continuous))
         .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.panel, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: Theme.Radius.panel, style: .continuous)
@@ -191,7 +191,7 @@ struct QueuePanel: View {
         }
         .frame(width: 340)
         .frame(maxHeight: .infinity)
-        .background(.regularMaterial)
+        .background(Platform.windowBackgroundColor)
         .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.panel, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: Theme.Radius.panel, style: .continuous)

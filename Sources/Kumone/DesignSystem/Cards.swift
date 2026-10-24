@@ -1,5 +1,34 @@
 import SwiftUI
 
+/// Use the content column's width so headers also adapt beside an open sidebar.
+/// Keeping one layout tree preserves focused fields and button state on resize.
+struct AdaptiveStack: Layout {
+    var horizontalMinimum: CGFloat = 560
+    var spacing: CGFloat = 20
+
+    private func stack(for width: CGFloat?) -> AnyLayout {
+        if let width, width < horizontalMinimum {
+            return AnyLayout(VStackLayout(alignment: .leading, spacing: spacing))
+        }
+        return AnyLayout(HStackLayout(alignment: .center, spacing: spacing))
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let layout = stack(for: proposal.width)
+        var stackCache = layout.makeCache(subviews: subviews)
+        let size = layout.sizeThatFits(proposal: proposal, subviews: subviews, cache: &stackCache)
+        // Fill the proposed column so placement uses the same arrangement as measurement.
+        let width = proposal.width.flatMap { $0.isFinite ? $0 : nil }
+        return CGSize(width: width ?? max(horizontalMinimum, size.width), height: size.height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let layout = stack(for: bounds.width)
+        var stackCache = layout.makeCache(subviews: subviews)
+        layout.placeSubviews(in: bounds, proposal: ProposedViewSize(bounds.size), subviews: subviews, cache: &stackCache)
+    }
+}
+
 // MARK: - Cover card (playlists / albums)
 
 struct CoverCard: View {

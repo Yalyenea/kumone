@@ -1,7 +1,6 @@
 import SwiftUI
 
-/// Immersive full-window now-playing page: artwork-tinted gradient backdrop,
-/// large artwork on the left, big synced lyrics on the right.
+/// Artwork and lyrics share the available space; transport stays at the bottom.
 struct NowPlayingView: View {
     let onOpenDestination: (Destination) -> Void
 
@@ -18,14 +17,15 @@ struct NowPlayingView: View {
         GeometryReader { geo in
             ZStack {
                 backdrop
-                regularLayout(size: geo.size)
+                VStack(spacing: 0) {
+                    pageHeader
+                    GeometryReader { content in
+                        playbackLayout(size: content.size)
+                    }
+                    playbackFooter
+                }
             }
-            .frame(width: geo.size.width)
-            .overlay(alignment: .topLeading) {
-                collapseButton(diameter: 28, glyphSize: 12)
-                    .padding(.top, 12)
-                    .padding(.leading, 91)
-            }
+            .frame(width: geo.size.width, height: geo.size.height)
         }
         // The window toolbar is hidden while this page is up, but SwiftUI keeps
         // reserving its safe area, which pushed the whole immersive layout —
@@ -46,18 +46,71 @@ struct NowPlayingView: View {
         player.showNowPlaying = false
     }
 
-    /// Collapse the playback page back to the main window.
-    private func collapseButton(diameter: CGFloat, glyphSize: CGFloat) -> some View {
-        Button {
-            close()
-        } label: {
-            Image(systemName: "chevron.down")
-                .font(.system(size: glyphSize, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.85))
-                .frame(width: diameter, height: diameter)
-                .background(.white.opacity(0.12), in: Circle())
+    private func headerGlyph(_ name: String) -> some View {
+        Image(systemName: name)
+            .font(.system(size: 13, weight: .medium))
+            .foregroundStyle(.white.opacity(0.85))
+            .frame(width: 28, height: 28)
+            .contentShape(Rectangle())
+    }
+
+    /// The title shares the traffic lights' row; the artists sit just below.
+    private var pageHeader: some View {
+        VStack(spacing: 0) {
+            headerBar
+                .overlay {
+                    if settings.nowPlayingMode == .lyrics {
+                        trackTitle.frame(maxWidth: 400).padding(.horizontal, 100)
+                    }
+                }
+            if settings.nowPlayingMode == .lyrics {
+                trackArtists.frame(maxWidth: 400).padding(.horizontal, 24)
+            }
         }
-        .buttonStyle(.pressable)
+    }
+
+    private var headerBar: some View {
+        HStack(spacing: 4) {
+            Spacer()
+            Menu {
+                Picker("播放页模式", selection: $settings.nowPlayingMode) {
+                    ForEach(NowPlayingMode.allCases) { mode in
+                        Text(mode.displayName).tag(mode)
+                    }
+                }
+                .pickerStyle(.inline)
+                .labelsHidden()
+            } label: {
+                headerGlyph("rectangle.on.rectangle")
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .tint(.white.opacity(0.85))
+            .fixedSize()
+            .help("切换播放页模式")
+            .accessibilityLabel("切换播放页模式")
+            Button(action: close) {
+                headerGlyph("xmark")
+            }
+            .buttonStyle(.pressable)
+            .help("收起播放页")
+            .accessibilityLabel("收起播放页")
+        }
+        .padding(.trailing, 16)
+        .frame(height: Theme.Layout.titlebarHeight)
+    }
+
+    private var playbackFooter: some View {
+        VStack(spacing: 4) {
+            NowPlayingScrubber().frame(maxWidth: 700)
+            controls.frame(maxWidth: 500)
+        }
+        .padding(.horizontal, 24)
+        .padding(.top, 8)
+        .padding(.bottom, 12)
+        .frame(maxWidth: .infinity)
+        .background(.black.opacity(0.14))
+        .overlay(alignment: .top) { Rectangle().fill(.white.opacity(0.1)).frame(height: 0.5) }
     }
 
     /// Jump straight to the line the song is on. Used when the view appears,
@@ -105,27 +158,43 @@ struct NowPlayingView: View {
 
     // MARK: - Layouts
 
+    @ViewBuilder
+    private func playbackLayout(size: CGSize) -> some View {
+        if settings.nowPlayingMode == .lyrics {
+            lyricsColumn(centered: true)
+                .frame(maxWidth: 900)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if (size.width < 820 || size.height > size.width), hasLyricsColumn {
+            // On tall, narrow windows artwork sits above the lyrics instead
+            // of spending half the width on an almost empty album column.
+            let artworkSize = max(72, min(220, size.width * 0.42, size.height * 0.25))
+            VStack(spacing: 12) {
+                albumPresentation(size: artworkSize)
+                trackMetaView.padding(.horizontal, 24)
+                lyricsColumn(centered: true)
+            }
+            .padding(.top, 4)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            regularLayout(size: size)
+        }
+    }
+
     private func regularLayout(size: CGSize) -> some View {
-        // Everything below the artwork needs ~300pt; shrink the artwork on
-        // short windows instead of clipping it.
-        let artworkSize = max(120, min(340, size.width * 0.32, size.height - 300))
-        // Cap the two-column band and centre it. Spreading each column to
-        // `.infinity` across a wide window
-        // left the left column's content floating in an oversized half and a
-        // wide blank gutter on the right (#62).
+        let artworkSize = max(90, min(340, size.width * 0.32, (size.height - 110) / 1.26))
         let maxBandWidth: CGFloat = hasLyricsColumn ? 1040 : 560
         return HStack(spacing: 0) {
             leftColumn(artworkSize: artworkSize)
                 .frame(maxWidth: .infinity)
             if hasLyricsColumn {
-                lyricsColumn
+                lyricsColumn(centered: false)
                     .frame(maxWidth: .infinity)
             }
         }
         .frame(maxWidth: maxBandWidth)
         .frame(maxWidth: .infinity)
-        .padding(.horizontal, 48)
-        .padding(.vertical, size.height < 500 ? 24 : 40)
+        .padding(.horizontal, size.width < 760 ? 24 : 40)
+        .padding(.vertical, 12)
     }
 
     // MARK: - Views
@@ -164,8 +233,8 @@ struct NowPlayingView: View {
             }
         }
         .frame(width: size, height: size)
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .shadow(color: .black.opacity(0.45), radius: 36, y: 18)
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .shadow(color: .black.opacity(0.2), radius: 12, y: 6)
         .animation(.easeIn(duration: 0.25), value: artworkImage != nil)
         .scaleEffect(player.isPlaying ? 1 : 0.95)
         .animation(AppAnimation.bouncy, value: player.isPlaying)
@@ -173,37 +242,44 @@ struct NowPlayingView: View {
 
     private var trackMetaView: some View {
         VStack(spacing: 5) {
-            HStack(spacing: 8) {
-                Text(player.currentTrack?.name ?? "")
-                    .font(.system(size: 21, weight: .bold))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                if player.currentTrack?.fee == 1 {
-                    VIPBadge()
-                }
-            }
-            if let track = player.currentTrack {
-                NowPlayingTrackDestinationLinks(
-                    track: track,
-                    font: .system(size: 13.5),
-                    color: .white.opacity(0.65),
-                    onOpenDestination: onOpenDestination
-                )
-            }
+            trackTitle
+            trackArtists
         }
         .frame(maxWidth: 400)
     }
 
-    private func leftColumn(artworkSize: CGFloat) -> some View {
-        VStack(spacing: 26) {
-            Spacer()
+    private var trackTitle: some View {
+        HStack(spacing: 8) {
+            Text(player.currentTrack?.name ?? "")
+                .font(.system(size: 21, weight: .bold))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+            if player.currentTrack?.fee == 1 {
+                VIPBadge()
+            }
+        }
+    }
 
+    @ViewBuilder
+    private var trackArtists: some View {
+        if let track = player.currentTrack {
+            NowPlayingTrackDestinationLinks(
+                track: track,
+                font: .system(size: 13.5),
+                color: .white.opacity(0.65),
+                onOpenDestination: onOpenDestination
+            )
+        }
+    }
+
+    private func albumPresentation(size: CGFloat) -> some View {
+        Group {
             if settings.nowPlayingMode == .vinyl {
                 VinylTurntableView(
                     artworkImage: artworkImage,
                     isPlaying: player.isPlaying,
                     trackId: player.currentTrack?.id,
-                    size: artworkSize,
+                    size: size,
                     onTap: {
                         player.togglePlayPause()
                     },
@@ -215,16 +291,16 @@ struct NowPlayingView: View {
                     }
                 )
             } else {
-                artworkView(size: artworkSize)
+                artworkView(size: size)
             }
+        }
+    }
+
+    private func leftColumn(artworkSize: CGFloat) -> some View {
+        VStack(spacing: 20) {
+            Spacer(minLength: 0)
+            albumPresentation(size: artworkSize)
             trackMetaView
-
-            VStack(spacing: 14) {
-                NowPlayingScrubber()
-                    .frame(maxWidth: 380)
-                controls
-            }
-
             Spacer()
         }
         .padding(.trailing, hasLyricsColumn ? 30 : 0)
@@ -304,8 +380,7 @@ struct NowPlayingView: View {
             ZStack {
                 Circle()
                     .fill(.white)
-                    .frame(width: 58, height: 58)
-                    .shadow(color: .black.opacity(0.3), radius: 12, y: 4)
+                    .frame(width: 44, height: 44)
                 Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
                     .font(.system(size: 21, weight: .bold))
                     .foregroundStyle(.black.opacity(0.85))
@@ -313,6 +388,7 @@ struct NowPlayingView: View {
             }
         }
         .buttonStyle(.pressable)
+        .accessibilityLabel(player.isPlaying ? "暂停" : "播放")
     }
 
     // MARK: - Queue-order control
@@ -346,18 +422,24 @@ struct NowPlayingView: View {
 
     // MARK: - Lyrics column
 
+    private func lyricsColumn(centered: Bool) -> some View {
+        GeometryReader { proxy in
+            lyricContent(verticalInset: max(32, proxy.size.height * 0.35), centered: centered)
+        }
+    }
+
     @ViewBuilder
-    private var lyricsColumn: some View {
+    private func lyricContent(verticalInset: CGFloat, centered: Bool) -> some View {
         if let lyrics = player.lyrics, !lyrics.isEmpty {
             ScrollViewReader { proxy in
                 ScrollView(showsIndicators: false) {
-                    LazyVStack(alignment: .leading, spacing: 26) {
-                        Color.clear.frame(height: 200)
+                    LazyVStack(alignment: centered ? .center : .leading, spacing: 26) {
+                        Color.clear.frame(height: verticalInset)
                         ForEach(lyrics.lines) { line in
-                            bigLyricLine(line, isActive: line.id == activeIndex)
+                            bigLyricLine(line, isActive: line.id == activeIndex, centered: centered)
                                 .id(line.id)
                         }
-                        Color.clear.frame(height: 240)
+                        Color.clear.frame(height: verticalInset)
                     }
                     .padding(.horizontal, 24)
                 }
@@ -401,6 +483,10 @@ struct NowPlayingView: View {
                     .foregroundStyle(.white.opacity(0.6))
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if player.lyrics != nil {
+            Text("暂无歌词")
+                .foregroundStyle(.white.opacity(0.6))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             ProgressView()
                 .controlSize(.small)
@@ -409,11 +495,11 @@ struct NowPlayingView: View {
         }
     }
 
-    private func bigLyricLine(_ line: LyricLine, isActive: Bool) -> some View {
+    private func bigLyricLine(_ line: LyricLine, isActive: Bool, centered: Bool) -> some View {
         Button {
             player.seek(to: line.time)
         } label: {
-            VStack(alignment: .leading, spacing: 5) {
+            VStack(alignment: centered ? .center : .leading, spacing: 5) {
                 if settings.lyricsAnnotation == .romaji, let romaji = line.romaji {
                     Text(romaji)
                         .font(.system(size: isActive ? 15 : 13, weight: .medium))
@@ -422,7 +508,8 @@ struct NowPlayingView: View {
                 LyricMainText(
                     line: line, isActive: isActive,
                     size: isActive ? 26 : 20, weight: isActive ? .bold : .semibold,
-                    verbatim: settings.verbatimLyrics
+                    verbatim: settings.verbatimLyrics,
+                    alignment: centered ? .center : .left
                 )
                 if settings.showLyricsTranslation, let translation = line.translation {
                     Text(translation)
@@ -430,11 +517,10 @@ struct NowPlayingView: View {
                         .foregroundStyle(.white.opacity(isActive ? 0.7 : 0.35))
                 }
             }
-            .multilineTextAlignment(.leading)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .multilineTextAlignment(centered ? .center : .leading)
+            .frame(maxWidth: .infinity, alignment: centered ? .center : .leading)
             .contentShape(Rectangle())
-            .blur(radius: isActive || isUserScrolling ? 0 : 0.6)
-            .scaleEffect(isActive ? 1.02 : 1, anchor: .leading)
+            .scaleEffect(isActive ? 1.02 : 1, anchor: centered ? .center : .leading)
         }
         .buttonStyle(.plain)
         .animation(.spring(response: 0.4, dampingFraction: 0.8), value: isActive)
@@ -455,6 +541,7 @@ struct LyricMainText: View {
     let size: CGFloat
     let weight: Font.Weight
     let verbatim: Bool
+    var alignment: NSTextAlignment = .left
     var inactiveOpacity: Double = 0.45
 
     @EnvironmentObject private var player: PlayerService
@@ -470,12 +557,14 @@ struct LyricMainText: View {
                 words: words,
                 size: size,
                 weight: weight,
+                alignment: alignment,
                 playing: player.isPlaying && windowVisibility.isVisible
             )
         } else {
             LyricText(
                 line: line, size: size, weight: weight,
-                color: .white.opacity(isActive ? 1 : inactiveOpacity)
+                color: .white.opacity(isActive ? 1 : inactiveOpacity),
+                alignment: alignment
             )
         }
     }

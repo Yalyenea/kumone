@@ -157,7 +157,7 @@ struct PlayCountBadge: View {
         .padding(.horizontal, 7)
         .padding(.vertical, 3.5)
         .background(.black.opacity(0.35), in: Capsule())
-        .background(.ultraThinMaterial.opacity(0.6), in: Capsule())
+        .background(Platform.windowBackgroundColor, in: RoundedRectangle(cornerRadius: Theme.Radius.small))
     }
 }
 

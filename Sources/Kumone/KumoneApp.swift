@@ -22,14 +22,13 @@ public struct KumoneApp: App {
                 .environmentObject(toasts)
                 .tint(Theme.accent)
                 .preferredColorScheme(settings.appearance.colorScheme)
-                .frame(minWidth: player.showNowPlaying
-                           ? Theme.Layout.minWindowWidthSidebarCollapsed
-                           : Theme.Layout.minWindowWidth,
+                .frame(minWidth: Theme.Layout.minWindowWidth,
                        minHeight: Theme.Layout.minWindowHeight)
         }
         .defaultSize(width: Theme.Layout.defaultWindowWidth,
                      height: Theme.Layout.defaultWindowHeight)
         .windowResizability(.contentMinSize)
+        .windowToolbarStyle(.unifiedCompact(showsTitle: false))
         .commands {
             CommandMenu("播放") {
                 Button(player.isPlaying ? String(localized: "暂停") : String(localized: "播放")) {
@@ -113,6 +112,8 @@ public struct KumoneApp: App {
                 .tint(Theme.accent)
                 .preferredColorScheme(settings.appearance.colorScheme)
         }
+        .defaultSize(width: 760, height: 650)
+        .windowResizability(.contentMinSize)
     }
 }
 

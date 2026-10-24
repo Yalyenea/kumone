@@ -77,26 +77,27 @@ struct DownloadedMusicView: View {
     }
 
     private func selectionHeader(tracks: [Track]) -> some View {
-        HStack(spacing: 12) {
+        AdaptiveStack(horizontalMinimum: 420, spacing: 12) {
             Text("已选择 \(selectedIDs.count) 首")
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
-            Spacer(minLength: 8)
-            let ids = Set(tracks.map(\.id))
-            let allSelected = !ids.isEmpty && ids.isSubset(of: selectedIDs)
-            Button(allSelected ? String(localized: "取消全选") : String(localized: "全选")) {
-                selectedIDs = allSelected ? [] : ids
+            HStack(spacing: 12) {
+                let ids = Set(tracks.map(\.id))
+                let allSelected = !ids.isEmpty && ids.isSubset(of: selectedIDs)
+                Button(allSelected ? String(localized: "取消全选") : String(localized: "全选")) {
+                    selectedIDs = allSelected ? [] : ids
+                }
+                .keyboardShortcut("a", modifiers: .command)
+                .accessibilityIdentifier("select-all-downloads")
+                Button("移除下载", role: .destructive) {
+                    pendingRemoval = selectedIDs.intersection(ids)
+                    removalScope = downloads.accountScope
+                    confirmRemoval = true
+                }
+                .disabled(selectedIDs.isEmpty)
+                .accessibilityIdentifier("remove-selected-downloads")
             }
-            .keyboardShortcut("a", modifiers: .command)
-            .accessibilityIdentifier("select-all-downloads")
-            Button("移除下载", role: .destructive) {
-                pendingRemoval = selectedIDs.intersection(ids)
-                removalScope = downloads.accountScope
-                confirmRemoval = true
-            }
-            .disabled(selectedIDs.isEmpty)
-            .accessibilityIdentifier("remove-selected-downloads")
         }
         .font(.system(size: 12.5, weight: .medium))
         .buttonStyle(.borderless)
@@ -209,37 +210,50 @@ struct DownloadTasksView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                HStack(spacing: 10) {
+                AdaptiveStack(horizontalMinimum: 440, spacing: 12) {
                     Text("任务：\(downloads.pendingJobs.count)")
                         .font(.system(size: 12)).foregroundStyle(.secondary)
-                    Spacer()
-                    taskButton("全部暂停", icon: "pause.fill", enabled: downloads.pendingJobs.contains { [.queued, .resolving, .downloading, .waitingNetwork].contains($0.status) }) {
-                        Task { await downloads.pauseAll() }
-                    }
-                    taskButton("继续全部", icon: "play.fill", enabled: downloads.pendingJobs.contains { $0.status.canResume }) {
-                        let count = downloads.pendingJobs.filter { $0.status.canResume }.count
-                        MeteredDownloadCenter.shared.request(bulk: true, count: count, network: downloads.network) { metered in
-                            Task { await downloads.resumeAll(allowsMetered: metered) }
+                    HStack(spacing: 10) {
+                        taskButton(
+                            "全部暂停", icon: "pause.fill",
+                            enabled: downloads.pendingJobs.contains {
+                                [.queued, .resolving, .downloading, .waitingNetwork].contains($0.status)
+                            }
+                        ) {
+                            Task { await downloads.pauseAll() }
                         }
-                    }
-                    Menu {
-                        Button("重试失败任务") {
-                            let count = downloads.pendingJobs.filter { [.failed, .unavailable].contains($0.status) }.count
-                            MeteredDownloadCenter.shared.request(bulk: true, count: count, network: downloads.network) { metered in
-                                Task { await downloads.resumeAll(failedOnly: true, allowsMetered: metered) }
+                        taskButton(
+                            "继续全部", icon: "play.fill", enabled: downloads.pendingJobs.contains { $0.status.canResume }
+                        ) {
+                            let count = downloads.pendingJobs.filter { $0.status.canResume }.count
+                            MeteredDownloadCenter.shared.request(bulk: true, count: count, network: downloads.network) {
+                                metered in
+                                Task { await downloads.resumeAll(allowsMetered: metered) }
                             }
                         }
-                        Button("取消未完成任务", role: .destructive) { confirmCancelAll = true }
-                    } label: {
-                        Image(systemName: "ellipsis")
-                            .font(.system(size: 13, weight: .semibold))
-                            .frame(width: 30, height: 30)
-                            .background(.primary.opacity(0.06), in: Circle())
+                        Menu {
+                            Button("重试失败任务") {
+                                let count = downloads.pendingJobs.filter {
+                                    [.failed, .unavailable].contains($0.status)
+                                }.count
+                                MeteredDownloadCenter.shared.request(
+                                    bulk: true, count: count, network: downloads.network
+                                ) { metered in
+                                    Task { await downloads.resumeAll(failedOnly: true, allowsMetered: metered) }
+                                }
+                            }
+                            Button("取消未完成任务", role: .destructive) { confirmCancelAll = true }
+                        } label: {
+                            Image(systemName: "ellipsis")
+                                .font(.system(size: 13, weight: .semibold))
+                                .frame(width: 30, height: 30)
+                                .background(.primary.opacity(0.06), in: Circle())
+                        }
+                        .menuStyle(.borderlessButton)
+                        .fixedSize()
+                        .accessibilityLabel("更多下载操作")
+                        .disabled(downloads.pendingJobs.isEmpty)
                     }
-                    .menuStyle(.borderlessButton)
-                    .fixedSize()
-                    .accessibilityLabel("更多下载操作")
-                    .disabled(downloads.pendingJobs.isEmpty)
                 }
                 .padding(.horizontal, Theme.Layout.contentInset)
                 .padding(.top, 12)
@@ -320,9 +334,8 @@ private struct DownloadTaskRow: View {
                     ProgressView(value: min(1, Double(received) / Double(expected)))
                         .tint(Theme.accent).controlSize(.small)
                 }
-                HStack {
+                AdaptiveStack(horizontalMinimum: 380, spacing: 4) {
                     Text(job.errorMessage ?? (waitsForWiFi ? String(localized: "等待 Wi-Fi") : job.status.label))
-                    Spacer(minLength: 8)
                     if expected > 0 {
                         Text("\(ByteCountFormatter.string(fromByteCount: received, countStyle: .file)) / \(ByteCountFormatter.string(fromByteCount: expected, countStyle: .file))")
                             .monospacedDigit()

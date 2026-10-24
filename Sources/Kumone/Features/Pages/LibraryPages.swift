@@ -13,7 +13,7 @@ struct RecentsView: View {
     var body: some View {
         TrackListScrollView(trackIDs: records.map { $0.song.id }, style: .compact, spacing: 16) {
             VStack(alignment: .leading, spacing: 16) {
-                HStack {
+                AdaptiveStack(horizontalMinimum: 380, spacing: 12) {
                     Picker("", selection: $week) {
                         Text("所有时间").tag(false)
                         Text("最近一周").tag(true)
@@ -21,8 +21,6 @@ struct RecentsView: View {
                     .pickerStyle(.segmented)
                     .labelsHidden()
                     .frame(width: 200)
-
-                    Spacer()
 
                     Button {
                         player.play(tracks: records.map(\.song), source: .none, context: .recents)
@@ -109,13 +107,12 @@ struct CloudView: View {
         let displayed = tracks
         TrackListScrollView(trackIDs: displayed.map(\.id), style: .compact, spacing: 16) {
             VStack(alignment: .leading, spacing: 16) {
-                HStack {
+                AdaptiveStack(horizontalMinimum: 440, spacing: 12) {
                     if let sizeInfo {
                         Text(sizeInfo)
                             .font(.system(size: 12))
                             .foregroundStyle(.secondary)
                     }
-                    Spacer()
                     Button {
                         player.play(tracks: tracks, source: .cloud, context: .cloud)
                     } label: {

@@ -26,17 +26,14 @@ extension EnvironmentValues {
 
 struct PlayerChromeModifier: ViewModifier {
     @EnvironmentObject private var player: PlayerService
-    let geometry: MainColumnGeometry
-
     func body(content: Content) -> some View {
-        content
-            .overlay(alignment: .bottomTrailing) {
-                MainColumnPlayerBar(geometry: geometry)
-            }
-            .overlay(alignment: .trailing) {
-                rightPanel
-            }
-            .animation(AppAnimation.standard, value: player.activePanel)
+        VStack(spacing: 0) {
+            content
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .overlay(alignment: .trailing) { rightPanel }
+            PlayerBar()
+        }
+        .animation(AppAnimation.standard, value: player.activePanel)
     }
 
     @ViewBuilder
@@ -51,33 +48,78 @@ struct PlayerChromeModifier: ViewModifier {
                 }
             }
             .padding(.top, 12)
-            .padding(.bottom, Theme.Layout.playerChromeClearance + 10)
+            .padding(.bottom, 10)
             .padding(.trailing, 16)
             .transition(.move(edge: .trailing).combined(with: .opacity))
         }
     }
 }
 
-private struct MainColumnPlayerBar: View {
-    @ObservedObject var geometry: MainColumnGeometry
-
-    var body: some View {
-        PlayerBar().frame(width: geometry.layout.width)
-    }
-}
-
-enum SidebarItem: Hashable {
+enum RootPage: String, Identifiable {
     case downloaded
     case home
     case explore
     case fm
-    case search
     case likedSongs
     case daily
+    case created
     case recents
     case collections
     case cloud
-    case playlist(Int)
+    case saved
+
+    var id: String { rawValue }
+
+    static let primaryPages: [RootPage] = [.home, .likedSongs, .daily, .created]
+    static let menuPages: [RootPage] = [.explore, .fm, .downloaded, .recents, .collections, .cloud, .saved]
+
+    var requiresLogin: Bool {
+        switch self {
+        case .home, .explore, .fm, .downloaded: return false
+        default: return true
+        }
+    }
+
+    var title: LocalizedStringKey {
+        switch self {
+        case .home: return "推荐"
+        case .likedSongs: return "我喜欢"
+        case .daily: return "日推"
+        case .created: return "我的歌单"
+        case .explore: return "精选"
+        case .fm: return "漫游"
+        case .downloaded: return "已下载"
+        case .recents: return "最近播放"
+        case .collections: return "我的收藏"
+        case .cloud: return "音乐云盘"
+        case .saved: return "收藏的歌单"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .home: return "house"
+        case .likedSongs: return "heart"
+        case .daily: return "calendar"
+        case .created: return "music.note.list"
+        case .explore: return "square.grid.2x2"
+        case .fm: return "wave.3.right.circle"
+        case .downloaded: return "arrow.down.circle"
+        case .recents: return "clock"
+        case .collections: return "star"
+        case .cloud: return "icloud"
+        case .saved: return "rectangle.stack"
+        }
+    }
+
+    func togglePin(in pages: inout [RootPage]) {
+        guard Self.menuPages.contains(self) else { return }
+        if let index = pages.firstIndex(of: self) {
+            pages.remove(at: index)
+        } else {
+            pages.append(self)
+        }
+    }
 }
 
 enum Destination: Hashable {
@@ -134,18 +176,18 @@ struct DestinationsModifier: ViewModifier {
                 }
             }
             .playerContentInset()
+            .toolbar(removing: .title)
+            .navigationBarBackButtonHidden(true)
         }
     }
 }
 
 extension View {
-    func playerChrome(geometry: MainColumnGeometry) -> some View {
-        modifier(PlayerChromeModifier(geometry: geometry))
+    func playerChrome() -> some View {
+        modifier(PlayerChromeModifier())
     }
 
-    /// Pages clear the floating player bar with an explicit trailing
-    /// `PlayerClearanceSpacer` in their scroll content; safeAreaPadding
-    /// proved unreliable inside navigation stacks (#12).
+    /// The player is outside navigation, so every destination keeps its full viewport.
     func playerContentInset() -> some View {
         self
     }
@@ -155,11 +197,8 @@ extension View {
     }
 }
 
-/// Trailing spacer for scrollable pages so the last row clears the
-/// floating player bar.
+/// A small breathing margin at the end of scrollable content.
 struct PlayerClearanceSpacer: View {
-    @EnvironmentObject private var player: PlayerService
-
     var body: some View {
         Color.clear.frame(
             height: Theme.Layout.playerChromeClearance + Theme.Layout.scrollBreathingMargin

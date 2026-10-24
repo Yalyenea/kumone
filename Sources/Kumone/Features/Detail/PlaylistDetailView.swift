@@ -68,7 +68,6 @@ struct PlaylistDetailView: View {
                         playlistStatus(detail)
                         PlayerClearanceSpacer()
                     }.padding(.top, 20)),
-                    headerHeight: 246,
                     footerHeight: desktopFooterHeight(detail)
                 ) { index in
                     AnyView(trackList(tracks, layout: .singleRow(index))
@@ -165,11 +164,10 @@ struct PlaylistDetailView: View {
     // MARK: - Header
 
     private func regularHeader(_ detail: PlaylistDetail) -> some View {
-        HStack(alignment: .bottom, spacing: 24) {
+        AdaptiveStack(horizontalMinimum: 620, spacing: 20) {
             CachedAsyncImage(url: detail.coverImgUrl?.resizedImageURL(512))
-                .frame(width: 200, height: 200)
+                .frame(width: 160, height: 160)
                 .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.large, style: .continuous))
-                .shadow(color: .black.opacity(0.25), radius: 16, y: 8)
 
             VStack(alignment: .leading, spacing: 8) {
                 Text(isLikedList ? String(localized: "我喜欢的音乐") : String(localized: "歌单"))
@@ -211,66 +209,66 @@ struct PlaylistDetailView: View {
                             Text(description)
                                 .font(.system(size: 13))
                                 .padding(16)
-                                .frame(width: 380, alignment: .leading)
+                                .frame(idealWidth: 320, maxWidth: 360, alignment: .leading)
                         }
                         .frame(maxHeight: 400)
                     }
                 }
 
-                Spacer(minLength: 4)
-
                 actionRow(detail)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(height: 210)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func actionRow(_ detail: PlaylistDetail) -> some View {
-        HStack(spacing: 10) {
-            Button {
-                player.play(tracks: playable, source: .playlist(playlistID),
-                            context: .playlist(id: playlistID, name: detail.name))
-            } label: {
-                Label("播放全部", systemImage: "play.fill")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 18)
-                    .padding(.vertical, 8)
-                    .background(Theme.accentGradient, in: Capsule())
-                    .shadow(color: Theme.accent.opacity(0.3), radius: 6, y: 2)
-            }
-            .buttonStyle(.pressable)
-            .disabled(playable.isEmpty)
-
-            if isLikedList {
+        AdaptiveStack(horizontalMinimum: 540, spacing: 12) {
+            HStack(spacing: 10) {
                 Button {
-                    startHeartbeat()
+                    player.play(
+                        tracks: playable, source: .playlist(playlistID),
+                        context: .playlist(id: playlistID, name: detail.name))
                 } label: {
-                    Label("心动模式", systemImage: "heart.circle")
+                    Label("播放全部", systemImage: "play.fill")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 8)
+                        .background(Theme.accentGradient, in: Capsule())
+                }
+                .buttonStyle(.pressable)
+                .disabled(playable.isEmpty)
+
+                if isLikedList {
+                    Button {
+                        startHeartbeat()
+                    } label: {
+                        Label("心动模式", systemImage: "heart.circle")
+                            .font(.system(size: 13, weight: .medium))
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(.primary.opacity(0.06), in: Capsule())
+                    }
+                    .buttonStyle(.pressable)
+                } else if !isOwnPlaylist, account.isLoggedIn {
+                    Button {
+                        toggleSubscribe(detail)
+                    } label: {
+                        Label(
+                            detail.subscribed ? String(localized: "已收藏") : String(localized: "收藏"),
+                            systemImage: detail.subscribed ? "checkmark" : "plus"
+                        )
                         .font(.system(size: 13, weight: .medium))
                         .padding(.horizontal, 14)
                         .padding(.vertical, 8)
                         .background(.primary.opacity(0.06), in: Capsule())
+                    }
+                    .buttonStyle(.pressable)
                 }
-                .buttonStyle(.pressable)
-            } else if !isOwnPlaylist, account.isLoggedIn {
-                Button {
-                    toggleSubscribe(detail)
-                } label: {
-                    Label(detail.subscribed ? String(localized: "已收藏") : String(localized: "收藏"),
-                          systemImage: detail.subscribed ? "checkmark" : "plus")
-                        .font(.system(size: 13, weight: .medium))
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
-                        .background(.primary.opacity(0.06), in: Capsule())
-                }
-                .buttonStyle(.pressable)
+
+                downloadButton(detail)
             }
-
-            downloadButton(detail)
-
-            Spacer()
 
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass")
@@ -279,11 +277,12 @@ struct PlaylistDetailView: View {
                 TextField("搜索歌单内歌曲", text: $model.filter)
                     .textFieldStyle(.plain)
                     .font(.system(size: 12))
-                    .frame(width: 130)
+                    .frame(minWidth: 100)
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
             .background(.primary.opacity(0.05), in: Capsule())
+            .frame(maxWidth: 240, alignment: .leading)
         }
     }
 
@@ -333,9 +332,9 @@ struct PlaylistDetailView: View {
     }
 
     private var loadingHeader: some View {
-        HStack(alignment: .top, spacing: 24) {
+        AdaptiveStack(horizontalMinimum: 620, spacing: 20) {
             SkeletonView(cornerRadius: Theme.Radius.large)
-                .frame(width: 200, height: 200)
+                .frame(width: 160, height: 160)
 
             VStack(alignment: .leading, spacing: 10) {
                 SkeletonView(cornerRadius: 4).frame(width: 80, height: 14)

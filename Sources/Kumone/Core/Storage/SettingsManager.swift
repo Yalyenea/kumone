@@ -72,6 +72,7 @@ enum LyricsAnnotation: String, CaseIterable, Identifiable {
 public enum NowPlayingMode: String, CaseIterable, Identifiable {
     case vinyl
     case classic
+    case lyrics
 
     public var id: String { rawValue }
 
@@ -79,6 +80,7 @@ public enum NowPlayingMode: String, CaseIterable, Identifiable {
         switch self {
         case .vinyl: return String(localized: "黑胶模式")
         case .classic: return String(localized: "经典模式")
+        case .lyrics: return String(localized: "全歌词")
         }
     }
 }
@@ -94,6 +96,7 @@ final class SettingsManager: ObservableObject {
         static let quality = "settings.audioQuality"
         static let appearance = "settings.appearance"
         static let nowPlayingMode = "settings.nowPlayingMode"
+        static let pinnedNavigationPages = "settings.pinnedNavigationPages"
         static let showTranslation = "settings.showLyricsTranslation"
         static let showRomaji = "settings.showLyricsRomaji"  // migrated to `annotation`
         static let annotation = "settings.lyricsAnnotation"
@@ -164,6 +167,12 @@ final class SettingsManager: ObservableObject {
 
     @Published var nowPlayingMode: NowPlayingMode {
         didSet { UserDefaults.standard.set(nowPlayingMode.rawValue, forKey: Keys.nowPlayingMode) }
+    }
+
+    @Published var pinnedNavigationPages: [RootPage] {
+        didSet {
+            UserDefaults.standard.set(pinnedNavigationPages.map(\.rawValue), forKey: Keys.pinnedNavigationPages)
+        }
     }
 
     @Published var showLyricsTranslation: Bool {
@@ -303,6 +312,8 @@ final class SettingsManager: ObservableObject {
         defaults.set(normalizedAudioCacheSizeMB, forKey: Keys.audioCacheSizeMB)
         appearance = defaults.string(forKey: Keys.appearance).flatMap(AppAppearance.init) ?? .auto
         nowPlayingMode = defaults.string(forKey: Keys.nowPlayingMode).flatMap(NowPlayingMode.init) ?? .classic
+        pinnedNavigationPages = (defaults.stringArray(forKey: Keys.pinnedNavigationPages) ?? [])
+            .compactMap(RootPage.init(rawValue:))
         showLyricsTranslation = defaults.object(forKey: Keys.showTranslation) as? Bool ?? true
         // Carry over the old on/off romaji toggle for anyone who had it on.
         lyricsAnnotation = defaults.string(forKey: Keys.annotation).flatMap(LyricsAnnotation.init)

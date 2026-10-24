@@ -16,10 +16,11 @@ enum Theme {
         static let small: CGFloat = 6
         static let standard: CGFloat = 8
         static let large: CGFloat = 12
-        static let panel: CGFloat = 20
+        static let panel: CGFloat = 10
     }
 
     enum Layout {
+        static let titlebarHeight: CGFloat = 40
         static let contentInset: CGFloat = 24
         static let cardSize: CGFloat = 160
         static func fittedShelfCardSize(availableWidth: CGFloat, leadingInset: CGFloat, spacing: CGFloat = 16) -> CGFloat {
@@ -33,30 +34,14 @@ enum Theme {
         static let coverShelfHeight: CGFloat = 226
         /// Row height for a shelf of artist cards: circular artwork, one name.
         static let artistShelfHeight: CGFloat = 196
-        static let sidebarWidth: CGFloat = 220
-        static let playerBarHeight: CGFloat = 56
-        /// Gap between the floating player bar and the window's bottom edge.
-        /// Must match the bar's own `.padding(.bottom,)` in PlayerBar.
-        static let playerBarBottomMargin: CGFloat = 16
-        /// Bottom inset pages need so scrolled content clears the floating bar.
-        static var playerChromeClearance: CGFloat { playerBarHeight + playerBarBottomMargin }
+        static let playerBarHeight: CGFloat = 64
+        /// The docked player reserves its own space below the page.
+        static let playerChromeClearance: CGFloat = 0
         /// Extra breathing margin for scrollable content clearing chrome.
         static let scrollBreathingMargin: CGFloat = 8
 
-        static let minWindowWidth: CGFloat = 1020
-        /// Width the split view's divider occupies between the two columns.
-        static let splitDividerWidth: CGFloat = 8
-        /// Window minimum while the sidebar is collapsed. The window-wide
-        /// minimum is a *content* constraint, so with the sidebar hidden it
-        /// lands entirely on the detail column; restoring the sidebar would
-        /// then add its width on top and `.contentMinSize` would widen the
-        /// window every time the now-playing page is dismissed (#19).
-        /// Subtracting the sidebar here keeps the restored total at
-        /// `minWindowWidth`.
-        static var minWindowWidthSidebarCollapsed: CGFloat {
-            minWindowWidth - sidebarWidth - splitDividerWidth
-        }
-        static let minWindowHeight: CGFloat = 640
+        static let minWindowWidth: CGFloat = 420
+        static let minWindowHeight: CGFloat = 480
         static let defaultWindowWidth: CGFloat = 1200
         static let defaultWindowHeight: CGFloat = 780
     }
@@ -91,13 +76,7 @@ extension View {
         toolbarBackgroundVisibility(.hidden, for: .automatic)
     }
 
-    /// Glass background with a graceful material fallback on macOS 15.
-    @ViewBuilder
-    func compatGlass(interactive: Bool = false, in shape: some Shape) -> some View {
-        if #available(macOS 26.0, *) {
-            self.glassEffect(interactive ? .regular.interactive() : .regular, in: shape)
-        } else {
-            self.background(.ultraThinMaterial, in: shape)
-        }
+    func panelSurface(in shape: some Shape) -> some View {
+        background(Platform.windowBackgroundColor, in: shape)
     }
 }

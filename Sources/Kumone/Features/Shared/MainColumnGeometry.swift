@@ -1,8 +1,7 @@
 import SwiftUI
 
-/// Only horizontal geometry affects the floating player and ambient chrome.
-/// MainWindow stores this reference in State without subscribing to it; small
-/// chrome views observe it so split-view animation does not rebuild navigation.
+/// Only the ambient tint follows the content column's horizontal geometry.
+/// Observing it separately keeps sidebar changes from rebuilding navigation.
 @MainActor
 final class MainColumnGeometry: ObservableObject {
     struct Layout: Equatable {

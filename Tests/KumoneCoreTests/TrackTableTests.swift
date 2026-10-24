@@ -86,6 +86,34 @@ struct TrackTableTests {
         #expect(coordinator.table.rect(ofRow: 1).height == 53)
     }
 
+    @Test func albumHeaderReflowsWithoutOverlappingTheFirstSong() {
+        let coordinator = TrackTable.Coordinator()
+        let header = AdaptiveStack(horizontalMinimum: 620, spacing: 20) {
+            Color.clear.frame(width: 160, height: 160)
+            Text(String(repeating: "Album title and description. ", count: 8))
+                .font(.system(size: 14))
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(24)
+        let content = TrackTable(trackIDs: [1], header: AnyView(header),
+                                 footer: AnyView(Color.clear.frame(height: 8))) { _ in
+            AnyView(Text("Song"))
+        }
+        var heights: [CGFloat] = []
+        for width: CGFloat in [900, 420, 900] {
+            coordinator.scrollView.frame = NSRect(x: 0, y: 0, width: width, height: 700)
+            coordinator.update(content, environment: EnvironmentValues())
+            coordinator.scrollView.layoutSubtreeIfNeeded()
+            let header = coordinator.table.rect(ofRow: 0)
+            let song = coordinator.table.rect(ofRow: 1)
+            #expect(song.minY == header.maxY)
+            #expect(song.height == 53)
+            heights.append(header.height)
+        }
+        #expect(heights[1] > heights[0])
+        #expect(heights[2] == heights[0])
+    }
+
     @Test func reusingACellUpdatesContentWithoutRecreatingItsViewGraph() {
         let cell = TrackTable.Cell()
         cell.frame = NSRect(x: 0, y: 0, width: 900, height: 53)

@@ -150,7 +150,7 @@ struct LoginSheet: View {
                         }
                     }
                     .padding(12)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .background(Platform.windowBackgroundColor, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                 }
             }
 
