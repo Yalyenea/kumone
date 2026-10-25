@@ -5,6 +5,7 @@ import SwiftUI
 public struct VinylTurntableView: View {
     public let artworkImage: PlatformImage?
     public let isPlaying: Bool
+    public let duration: TimeInterval
     public let trackId: Int?
     public let size: CGFloat
     public var onTap: (() -> Void)? = nil
@@ -19,6 +20,7 @@ public struct VinylTurntableView: View {
     public init(
         artworkImage: PlatformImage?,
         isPlaying: Bool,
+        duration: TimeInterval = 0,
         trackId: Int? = nil,
         size: CGFloat = 280,
         onTap: (() -> Void)? = nil,
@@ -27,6 +29,7 @@ public struct VinylTurntableView: View {
     ) {
         self.artworkImage = artworkImage
         self.isPlaying = isPlaying
+        self.duration = duration
         self.trackId = trackId
         self.size = size
         self.onTap = onTap
@@ -69,6 +72,7 @@ public struct VinylTurntableView: View {
 
             VinylTonearmView(
                 isPlaying: isPlaying && !isDragging && !isTransitioningTrack,
+                duration: duration,
                 height: armHeight
             )
             .offset(x: discSize * 0.03)

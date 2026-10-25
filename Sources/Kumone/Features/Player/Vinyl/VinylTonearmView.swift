@@ -2,15 +2,20 @@ import QuartzCore
 import SwiftUI
 
 /// A small ivory pivot and bent aluminium arm, with the needle resting on
-/// the record's outer grooves instead of obscuring the paper label.
+/// the record's grooves, moving inward as the song progresses.
 public struct VinylTonearmView: View {
     public let isPlaying: Bool
+    public let duration: TimeInterval
     public let height: CGFloat
     public let reduceMotion: Bool
     @ObservedObject private var windowVisibility = MainWindowVisibility.shared
+    // Keep clock updates local to the arm instead of rebuilding the record or page.
+    @ObservedObject private var clock = PlayerService.shared.clock
 
-    public init(isPlaying: Bool, height: CGFloat = 175, reduceMotion: Bool = false) {
+    public init(isPlaying: Bool, duration: TimeInterval = 0,
+                height: CGFloat = 175, reduceMotion: Bool = false) {
         self.isPlaying = isPlaying
+        self.duration = duration
         self.height = height
         self.reduceMotion = reduceMotion
     }
@@ -25,6 +30,7 @@ public struct VinylTonearmView: View {
             EngagingTonearm(
                 arm: armAssembly(width: width, height: height),
                 engaged: isPlaying,
+                progress: duration > 0 ? clock.progress / duration : 0,
                 wobbling: isPlaying && !reduceMotion && windowVisibility.isVisible,
                 animated: !reduceMotion,
                 width: width,
@@ -125,27 +131,26 @@ private struct TonearmPath: Shape {
 /// additive keyframe wobble while the record plays. The `TimelineView` this
 /// replaces re-evaluated the whole arm — and the page's layout around it —
 /// on every display frame for that ±0.28° shimmer (#128 performance work).
-private final class TonearmMotionController {
-    private static let restedDegrees: Double = 0
+final class TonearmMotionController {
     private static let parkedDegrees: Double = -32
 
     private let layer: CALayer
-    private var engaged: Bool
+    private var rotation: Double
     private var wobbling = false
 
-    init(layer: CALayer, engaged: Bool) {
+    init(layer: CALayer, engaged: Bool, progress: Double) {
         self.layer = layer
-        self.engaged = engaged
+        rotation = Self.zRotation(engaged: engaged, progress: progress)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        layer.setValue(Self.zRotation(engaged: engaged), forKeyPath: "transform.rotation.z")
+        layer.setValue(rotation, forKeyPath: "transform.rotation.z")
         CATransaction.commit()
     }
 
-    func setEngaged(_ engaged: Bool, animated: Bool) {
-        guard engaged != self.engaged else { return }
-        self.engaged = engaged
-        let target = Self.zRotation(engaged: engaged)
+    func setEngaged(_ engaged: Bool, progress: Double, animated: Bool) {
+        let target = Self.zRotation(engaged: engaged, progress: progress)
+        guard target != rotation else { return }
+        rotation = target
         // Retarget from what is on screen, not from the model: a drag released
         // mid-swing must reverse smoothly rather than jump to the far end.
         let from = layer.presentation()?.value(forKeyPath: "transform.rotation.z") as? Double
@@ -154,6 +159,7 @@ private final class TonearmMotionController {
         CATransaction.setDisableActions(true)
         layer.setValue(target, forKeyPath: "transform.rotation.z")
         CATransaction.commit()
+        layer.removeAnimation(forKey: "tonearm-engage")
         guard animated else { return }
         // CASpringAnimation parameters converted from the SwiftUI spring this
         // replaces (response 0.48, damping fraction 0.74, mass 1).
@@ -197,14 +203,18 @@ private final class TonearmMotionController {
     /// Core Animation measures angles the other way round from SwiftUI, so the
     /// SwiftUI-side degrees (`-32` parks the arm away from the record) arrive
     /// on the layer negated.
-    private static func zRotation(engaged: Bool) -> Double {
-        -(engaged ? restedDegrees : parkedDegrees) * .pi / 180
+    private static func zRotation(engaged: Bool, progress: Double) -> Double {
+        let fraction = progress.isFinite ? min(1, max(0, progress)) : 0
+        // This sweep keeps the stylus between the outer groove and the label edge.
+        let trackingDegrees = -18 + 20 * fraction
+        return -(engaged ? trackingDegrees : parkedDegrees) * .pi / 180
     }
 }
 
 private struct EngagingTonearm<Content: View>: PlatformViewRepresentable {
     let arm: Content
     let engaged: Bool
+    let progress: Double
     let wobbling: Bool
     let animated: Bool
     let width: CGFloat
@@ -212,13 +222,13 @@ private struct EngagingTonearm<Content: View>: PlatformViewRepresentable {
     let pivotY: CGFloat
 
     func makeNSView(context: Context) -> TonearmHost<Content> {
-        TonearmHost(arm: arm, engaged: engaged, wobbling: wobbling,
+        TonearmHost(arm: arm, engaged: engaged, progress: progress, wobbling: wobbling,
                     width: width, height: height, pivotY: pivotY)
     }
 
     func updateNSView(_ host: TonearmHost<Content>, context: Context) {
         host.update(arm: arm, width: width, height: height, pivotY: pivotY)
-        host.motion.setEngaged(engaged, animated: animated)
+        host.motion.setEngaged(engaged, progress: progress, animated: animated)
         host.motion.setWobbling(wobbling)
     }
 
@@ -239,7 +249,7 @@ private final class TonearmHost<Content: View>: NSView {
     private var pivotY: CGFloat
     private(set) var motion: TonearmMotionController!
 
-    init(arm: Content, engaged: Bool, wobbling: Bool,
+    init(arm: Content, engaged: Bool, progress: Double, wobbling: Bool,
          width: CGFloat, height: CGFloat, pivotY: CGFloat) {
         self.arm = NSHostingView(rootView: arm)
         self.width = width
@@ -249,7 +259,7 @@ private final class TonearmHost<Content: View>: NSView {
         stage.wantsLayer = true
         addSubview(stage)
         stage.addSubview(self.arm)
-        motion = TonearmMotionController(layer: stage.layer ?? CALayer(), engaged: engaged)
+        motion = TonearmMotionController(layer: stage.layer ?? CALayer(), engaged: engaged, progress: progress)
         motion.setWobbling(wobbling)
     }
 

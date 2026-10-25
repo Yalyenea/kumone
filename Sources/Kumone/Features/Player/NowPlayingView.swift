@@ -261,6 +261,7 @@ struct NowPlayingView: View {
                 VinylTurntableView(
                     artworkImage: artworkImage,
                     isPlaying: player.isPlaying,
+                    duration: player.duration,
                     trackId: player.currentTrack?.id,
                     size: size,
                     onTap: {
