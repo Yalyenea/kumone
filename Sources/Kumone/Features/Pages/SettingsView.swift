@@ -128,7 +128,10 @@ struct SettingsView: View {
         case .playback:
             Form {
                 Section("音质") {
-                    Picker("播放音质", selection: $settings.audioQuality) {
+                    Picker("播放音质", selection: Binding(
+                        get: { settings.audioQuality },
+                        set: { PlayerService.shared.setAudioQuality($0) }
+                    )) {
                         ForEach(AudioQuality.allCases) { quality in
                             Text(quality.displayName).tag(quality)
                         }

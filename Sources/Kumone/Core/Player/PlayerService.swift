@@ -211,6 +211,9 @@ final class PlayerService: ObservableObject {
         return t.isFinite ? t : progress
     }
     private var resolveGeneration = 0
+    /// A quality change resumes the listening session it interrupted. A
+    /// restored checkpoint still needs the ordinary new-session start path.
+    private var pendingQualityReload = false
     /// True while the engine is paused by us (togglePlayPause/pause/
     /// interruption). When false, "resume" must re-issue play() instead —
     /// engine.resume() is a no-op on a drained or never-paused deck.
@@ -467,8 +470,9 @@ final class PlayerService: ObservableObject {
             pause()
             return
         } else if !deckLoaded {
-            // Restored session: re-resolve the source.
-            startPlaying(track, resumeAt: progress)
+            // Only a pending quality change continues the existing listening
+            // session; a restored session keeps the normal playback-start behavior.
+            startPlaying(track, resumeAt: progress, continuingCurrentTrack: pendingQualityReload)
             return
         } else if enginePaused {
             engine.resume()
@@ -482,6 +486,19 @@ final class PlayerService: ObservableObject {
             scrobbleStartIfNeeded(track)
         }
         NowPlayingManager.shared.updateElapsed(progress, rate: isPlaying ? 1 : 0)
+    }
+
+    func setAudioQuality(_ quality: AudioQuality) {
+        let settings = SettingsManager.shared
+        guard settings.audioQuality != quality else { return }
+        settings.audioQuality = quality
+        guard let track = currentTrack else { return }
+        let continuingCurrentTrack = isPlaying || deckLoaded || pendingQualityReload
+        // A paused player only discards the old source. Resolving on the next
+        // play press avoids a background load unexpectedly resuming playback.
+        startPlaying(track, resumeAt: livePlaybackTime,
+                     continuingCurrentTrack: true, autoplay: isPlaying)
+        pendingQualityReload = continuingCurrentTrack
     }
 
     func pause() {
@@ -925,12 +942,14 @@ final class PlayerService: ObservableObject {
     }
 
     private func startPlaying(_ track: Track,
-                              localLease: OfflinePlaybackLease? = nil, resumeAt: TimeInterval = 0) {
+                              localLease: OfflinePlaybackLease? = nil, resumeAt: TimeInterval = 0,
+                              continuingCurrentTrack: Bool = false, autoplay: Bool = true) {
+        pendingQualityReload = continuingCurrentTrack
         offlineScan?.cancel()
         offlineScan = nil
         offlineScanID = UUID()
         offlineIssue = nil
-        currentWasAdvanced = pendingAutoAdvance
+        currentWasAdvanced = continuingCurrentTrack ? false : pendingAutoAdvance
         pendingAutoAdvance = false
         releaseOfflineLease()
         // Any armed hand-over is void: this is a hard track change.
@@ -938,9 +957,18 @@ final class PlayerService: ObservableObject {
         engine.stop(deck: activeDeck.other)
         deckFiles[activeDeck.other] = nil
         prefetchTask?.cancel()
+        prefetchTask = nil
         prefetchedNext = nil
         currentAnalysis = nil
         currentLocalURL = nil
+        currentCacheKey = nil
+        currentRemoteURL = nil
+        if continuingCurrentTrack {
+            // Freeze the old source at the checkpoint while the replacement
+            // downloads; its end events must not advance this same song.
+            engine.stop(deck: activeDeck)
+            deckFiles[activeDeck] = nil
+        }
         // The active deck is still carrying the *previous* track — `resolveAndLoad`
         // does not stop it until a URL has been resolved, deliberately, so the
         // outgoing song plays on rather than leaving a hole. What must not
@@ -956,44 +984,55 @@ final class PlayerService: ObservableObject {
         // `deckLoaded` is precisely the fact that stops it, and it was simply
         // never cleared here.
         deckLoaded = false
+        hasLocalFile = false
         // A new track is a new decision round for the queue-order mode: the
         // escalation restarts from nothing admitted, on top of the (now
         // richer) pool of everything analyzed so far.
-        autoMixPickCommitted = false
-        queueOrderSelector?.beginPick()
-        autoMixStaleDeadlineNoted = false
+        if !continuingCurrentTrack {
+            autoMixPickCommitted = false
+            queueOrderSelector?.beginPick()
+            autoMixStaleDeadlineNoted = false
+        }
         AutoMixDebugModel.shared.clearNext()
         isBuffering = false
         enginePaused = false
 
-        scrobbleIfNeeded(completed: false)
-        currentTrack = track
-        playbackAccountID = AccountStore.shared.profile?.userId
+        if !continuingCurrentTrack {
+            scrobbleIfNeeded(completed: false)
+            currentTrack = track
+            playbackAccountID = AccountStore.shared.profile?.userId
+            lyrics = nil
+            currentLyricLRC = nil
+            scrobbled = false
+            startScrobbled = false
+            lyricsCursor.activeIndex = nil
+        }
         progress = resumeAt
-        duration = track.duration
+        if !continuingCurrentTrack { duration = track.duration }
         servedQuality = nil
-        isTrial = false
-        lyrics = nil
-        currentLyricLRC = nil
-        scrobbled = false
-        startScrobbled = false
-        isPlaying = true
-        lyricsCursor.activeIndex = nil
+        if !continuingCurrentTrack { isTrial = false }
+        isPlaying = autoplay
         // Before the URL is even resolved: holds the bars still rather than
         // letting them fall back to the decorative animation for the moment it
         // takes to find out whether this source can be tapped.
-        AudioSpectrum.shared.beginPreparing()
+        if autoplay { AudioSpectrum.shared.beginPreparing() }
+        else { AudioSpectrum.shared.reset() }
         resolveGeneration += 1
         let generation = resolveGeneration
 
-        NowPlayingManager.shared.updateMetadata(for: track, duration: track.duration)
+        NowPlayingManager.shared.updateMetadata(for: track, duration: duration)
+        NowPlayingManager.shared.updateElapsed(resumeAt, rate: autoplay ? 1 : 0)
         persistState()
 
-        Task {
-            await resolveAndLoad(track, generation: generation, localLease: localLease, resumeAt: resumeAt)
+        if lyrics == nil {
+            Task {
+                await loadLyrics(for: track, generation: generation)
+            }
         }
+        guard autoplay else { return }
         Task {
-            await loadLyrics(for: track, generation: generation)
+            await resolveAndLoad(track, generation: generation, localLease: localLease,
+                                 resumeAt: resumeAt, continuingCurrentTrack: continuingCurrentTrack)
         }
     }
 
@@ -1029,9 +1068,11 @@ final class PlayerService: ObservableObject {
     }
 
     private func resolveAndLoad(_ track: Track, generation: Int,
-                                localLease: OfflinePlaybackLease? = nil, resumeAt: TimeInterval = 0) async {
+                                localLease: OfflinePlaybackLease? = nil, resumeAt: TimeInterval = 0,
+                                continuingCurrentTrack: Bool = false) async {
         // A downloaded copy beats the network, and is all there is without one.
         if let lease = await acquireOfflineLease(for: track, generation: generation, reusing: localLease) {
+            isTrial = false
             playLocalFile(lease.url, lease: lease, for: track, generation: generation, from: resumeAt)
             return
         }
@@ -1040,6 +1081,7 @@ final class PlayerService: ObservableObject {
             // Without a network, the cache is the last place to look.
             if let cached = await EngineAudioCache.shared.cachedFileURL(trackID: track.id) {
                 guard generation == resolveGeneration else { return }
+                isTrial = false
                 playLocalFile(cached, lease: nil, for: track, generation: generation, from: resumeAt)
                 return
             }
@@ -1056,6 +1098,11 @@ final class PlayerService: ObservableObject {
                                            isLoggedIn: AccountStore.shared.isLoggedIn,
                                            vipType: AccountStore.shared.vipType).reason
             ToastCenter.shared.show(String(localized: "《\(track.name)》无法播放\(reason.map { "：\($0)" } ?? "")"))
+            if continuingCurrentTrack {
+                isPlaying = false
+                NowPlayingManager.shared.updateElapsed(progress, rate: 0)
+                return
+            }
             guard isPlaying else { return }
             if consecutiveFailures < 5 {
                 advanceToNext(userInitiated: false)
@@ -1077,8 +1124,8 @@ final class PlayerService: ObservableObject {
             + "wanted=\(SettingsManager.shared.audioQuality.rawValue) "
             + (resolved.isTrial ? "trial " : ""))
         scheduleAudioUnitReadback()
+        isTrial = resolved.isTrial
         if resolved.isTrial {
-            isTrial = true
             ToastCenter.shared.show(String(localized: "VIP 歌曲，当前为试听片段"))
         }
 
@@ -1088,10 +1135,25 @@ final class PlayerService: ObservableObject {
 
         // Progressive streams cannot seek before their bytes arrive. A received
         // checkpoint therefore loads a complete file through the existing cache.
-        if resumeAt > 0, !resolved.isTrial {
+        if resumeAt > 0 {
             isBuffering = true
             do {
-                let local = try await EngineAudioCache.shared.download(from: resolved.url, key: key)
+                let local: URL
+                if resolved.isTrial {
+                    // A preview needs a complete file to seek too, but must
+                    // stay in the same temporary slot used by trial streaming.
+                    let (data, response) = try await URLSession.shared.data(from: resolved.url)
+                    guard generation == resolveGeneration else { return }
+                    if let http = response as? HTTPURLResponse,
+                       !(200..<300).contains(http.statusCode) {
+                        throw URLError(.badServerResponse)
+                    }
+                    local = FileManager.default.temporaryDirectory
+                        .appendingPathComponent("kumone-trial-\(track.id).part")
+                    try data.write(to: local, options: .atomic)
+                } else {
+                    local = try await EngineAudioCache.shared.download(from: resolved.url, key: key)
+                }
                 guard generation == resolveGeneration else { return }
                 playLocalFile(local, lease: nil, for: track, generation: generation, from: resumeAt)
                 servedQuality = resolved.level
@@ -1101,6 +1163,7 @@ final class PlayerService: ObservableObject {
                 isBuffering = false
                 isPlaying = false
                 engine.stop(deck: activeDeck)
+                NowPlayingManager.shared.updateElapsed(progress, rate: 0)
                 ToastCenter.shared.show(error.localizedDescription)
                 return
             }
@@ -1137,10 +1200,14 @@ final class PlayerService: ObservableObject {
                 deckFiles[activeDeck] = local
                 currentLocalURL = local
                 persistCurrentLyricsSidecar()
-                engine.play(deck: activeDeck, from: 0)
-                isPlaying = true
-                AudioSpectrum.shared.markTapped()
-                scrobbleStartIfNeeded(track)
+                if isPlaying {
+                    engine.play(deck: activeDeck, from: 0)
+                    AudioSpectrum.shared.markTapped()
+                    scrobbleStartIfNeeded(track)
+                } else {
+                    enginePaused = false
+                }
+                pendingQualityReload = false
                 duration = fileDuration
                 NowPlayingManager.shared.updateMetadata(for: track, duration: fileDuration)
                 ensureCurrentAnalysis(key: key, fileURL: local)
@@ -1164,10 +1231,14 @@ final class PlayerService: ObservableObject {
         isBuffering = true
         engine.startStreaming(from: resolved.url, formatHint: key.fileExtension,
                               writingTo: partURL, on: activeDeck)
-        engine.play(deck: activeDeck, from: 0)
-        isPlaying = true
-        AudioSpectrum.shared.markTapped()
-        scrobbleStartIfNeeded(track)
+        if isPlaying {
+            engine.play(deck: activeDeck, from: 0)
+            AudioSpectrum.shared.markTapped()
+            scrobbleStartIfNeeded(track)
+        } else {
+            enginePaused = false
+        }
+        pendingQualityReload = false
 
         if let time = resolved.durationMS, time > 0 {
             duration = TimeInterval(time) / 1000
@@ -1181,12 +1252,12 @@ final class PlayerService: ObservableObject {
     private func handleEngineEvent(_ event: PlaybackEngineEvent) {
         switch event {
         case .deckFinished(let deck):
-            guard deck == activeDeck else { return }
+            guard deck == activeDeck, deckLoaded else { return }
             handleItemEnded()
         case .streamStalled(let deck):
-            if deck == activeDeck { isBuffering = true }
+            if deck == activeDeck, deckLoaded { isBuffering = true }
         case .streamResumed(let deck):
-            if deck == activeDeck { isBuffering = false }
+            if deck == activeDeck, deckLoaded { isBuffering = false }
         case .streamDownloadCompleted(let deck):
             guard deck == activeDeck, let key = currentCacheKey else { return }
             let generation = resolveGeneration
@@ -1209,7 +1280,7 @@ final class PlayerService: ObservableObject {
                 self.schedulePrefetch()
             }
         case .streamFailed(let deck, _):
-            guard deck == activeDeck else { return }
+            guard deck == activeDeck, deckLoaded else { return }
             handleStreamFailure()
         case .transitionMidpoint(_, let to, let outcome):
             // Freeze the seam *before* adopting: from here on `currentTrack`
@@ -2074,6 +2145,7 @@ final class PlayerService: ObservableObject {
         currentTrack = next
         activeDeck = deck
         deckLoaded = true
+        pendingQualityReload = false
         hasLocalFile = true
         isBuffering = false
         currentCacheKey = prefetchedNext?.key
@@ -2507,11 +2579,12 @@ final class PlayerService: ObservableObject {
         }
         offlinePlaybackLease = lease
         deckLoaded = true
+        pendingQualityReload = false
         hasLocalFile = true
         deckFiles[activeDeck] = url
         // Only a cache file is `currentLocalURL`: the transition pre-render and the
         // lyric sidecar write next to it, and downloads are not cache entries.
-        currentLocalURL = lease == nil ? url : nil
+        currentLocalURL = lease == nil && !isTrial ? url : nil
         isBuffering = false
         duration = fileDuration
         if isPlaying {

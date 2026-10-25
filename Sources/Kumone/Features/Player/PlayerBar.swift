@@ -20,7 +20,7 @@ struct PlayerBar: View {
                         .frame(width: sideWidth, alignment: .leading)
                     Spacer(minLength: 0)
                     optionsSection(compact: compact, diameter: diameter,
-                                   showsQuality: proxy.size.width >= 1000)
+                                   showsQualityTitle: proxy.size.width >= 1000)
                         .frame(width: sideWidth, alignment: .trailing)
                 }
                 .padding(.horizontal, 12)
@@ -128,12 +128,9 @@ struct PlayerBar: View {
         .help(player.isPlaying ? "暂停" : "播放")
     }
 
-    private func optionsSection(compact: Bool, diameter: CGFloat, showsQuality: Bool) -> some View {
-        HStack(spacing: compact ? 3 : 8) {
-            if showsQuality, let level = player.servedQuality,
-               let quality = AudioQuality(rawValue: level) {
-                QualityTag(text: quality.badge)
-            }
+    private func optionsSection(compact: Bool, diameter: CGFloat, showsQualityTitle: Bool) -> some View {
+        HStack(spacing: compact ? 1 : 8) {
+            qualityMenu(showsTitle: showsQualityTitle, diameter: diameter)
             PlayerIconButton(icon: "inset.filled.bottomthird.square", size: 16,
                              diameter: diameter, isActive: settings.showDesktopLyrics) {
                 settings.showDesktopLyrics.toggle()
@@ -144,6 +141,42 @@ struct PlayerBar: View {
                               tint: .primary, background: .clear)
             VolumeControl(compact: compact)
         }
+    }
+
+    private func qualityMenu(showsTitle: Bool, diameter: CGFloat) -> some View {
+        Menu {
+            Picker("播放音质", selection: Binding(
+                get: { settings.audioQuality },
+                set: { player.setAudioQuality($0) }
+            )) {
+                ForEach(AudioQuality.allCases) { quality in
+                    Text(quality.displayName).tag(quality)
+                }
+            }
+            .pickerStyle(.inline)
+            if let level = player.servedQuality, let quality = AudioQuality(rawValue: level) {
+                Divider()
+                Text("当前音质：\(quality.displayName)")
+            }
+        } label: {
+            Group {
+                if showsTitle {
+                    QualityTag(text: settings.audioQuality.badge)
+                } else {
+                    Image(systemName: "waveform")
+                        .font(.system(size: 14, weight: .medium))
+                        .frame(width: diameter - 4)
+                }
+            }
+            .frame(height: diameter)
+            .contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("播放音质")
+        .accessibilityLabel("播放音质")
+        .accessibilityValue(settings.audioQuality.displayName)
     }
 }
 
@@ -324,12 +357,29 @@ struct ScrubberLane: View {
 struct VolumeControl: View {
     var compact = false
     @EnvironmentObject private var player: PlayerService
+    @State private var showsVolume = false
 
+    @ViewBuilder
     var body: some View {
-        HStack(spacing: compact ? 2 : 6) {
+        if compact {
+            // Keep quality, lyrics, output and volume reachable in the narrow bar.
+            PlayerIconButton(icon: volumeIcon, size: 14, diameter: 26) {
+                showsVolume.toggle()
+            }
+            .help("音量")
+            .accessibilityLabel("音量")
+            .accessibilityValue("\(Int(player.volume * 100))%")
+            .popover(isPresented: $showsVolume) { inlineVolume.padding(14) }
+        } else {
+            inlineVolume
+        }
+    }
+
+    private var inlineVolume: some View {
+        HStack(spacing: 6) {
             Image(systemName: volumeIcon)
-                .font(.system(size: compact ? 14 : 16, weight: .medium))
-                .frame(width: compact ? 16 : 20)
+                .font(.system(size: 16, weight: .medium))
+                .frame(width: 20)
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
                     Capsule().fill(.primary.opacity(0.14))
@@ -344,7 +394,7 @@ struct VolumeControl: View {
                     player.volume = Float(min(max(value.location.x / geo.size.width, 0), 1))
                 })
             }
-            .frame(width: compact ? 30 : 64, height: 26)
+            .frame(width: 64, height: 26)
         }
         .help("音量")
         .accessibilityElement(children: .ignore)
