@@ -427,7 +427,12 @@ final class PlayerService: ObservableObject {
         case .listed:
             currentIndex = tracks.firstIndex(where: { $0.id == startTrack.id }) ?? 0
         case .shuffled:
-            reshuffle(keeping: startTrack)
+            // Only an explicit song selection should pin the first track.
+            if let track {
+                reshuffle(keeping: track)
+            } else {
+                shuffledQueue = tracks.shuffled()
+            }
             currentIndex = 0
         case .autoMix:
             reorderForAutoMix(keeping: startTrack)
