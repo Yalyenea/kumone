@@ -3269,6 +3269,10 @@ final class PlayerService: ObservableObject {
                 try session.validate()
                 applyPlaybackSession(session)
                 NowPlayingManager.shared.updateMetadata(for: session.currentTrack, duration: duration)
+                // Restoring a paused session must load its lyrics without waiting for Play.
+                Task { [generation = resolveGeneration] in
+                    await loadLyrics(for: session.currentTrack, generation: generation)
+                }
             } catch { ToastCenter.shared.show(error.localizedDescription) }
             return
         }
