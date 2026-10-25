@@ -317,18 +317,12 @@
 "播放 / 暂停" = "Play / Pause";
 "增加音量" = "Volume Up";
 "减少音量" = "Volume Down";
-"作用范围" = "Scope";
-"应用内" = "In-App";
-"全局" = "Global";
 "恢复默认" = "Restore Defaults";
 "录制中…" = "Recording…";
 "清除快捷键" = "Clear Shortcut";
 "Delete 清除 · Esc 取消" = "Delete to clear · Esc to cancel";
 "关闭播放页" = "Close Now Playing";
-"此组合无法用作全局快捷键" = "This combination cannot be used as a global shortcut";
-"快捷键不可用，原设置已保留" = "Shortcut unavailable; the previous setting is kept";
 "无法读取快捷键，暂用默认设置" = "Cannot read shortcuts; using defaults for now";
-"全局快捷键未能启用" = "Global shortcuts could not be enabled";
 
 /* AutoMix settings (macOS) */
 "让歌曲丝滑衔接，让听感更流畅" = "Seamless transitions for smoother listening";

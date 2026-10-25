@@ -37,9 +37,9 @@ public struct KumoneApp: App {
                 .disabled(!player.hasCurrentTrack)
 
                 Button("下一首") { player.next() }
-                    .keyboardShortcut(shortcuts.shortcut(for: .nextTrack, isGlobal: false).keyboardShortcut)
+                    .keyboardShortcut(shortcuts.shortcut(for: .nextTrack).keyboardShortcut)
                 Button("上一首") { player.previous() }
-                    .keyboardShortcut(shortcuts.shortcut(for: .previousTrack, isGlobal: false).keyboardShortcut)
+                    .keyboardShortcut(shortcuts.shortcut(for: .previousTrack).keyboardShortcut)
 
                 Divider()
 
@@ -47,9 +47,9 @@ public struct KumoneApp: App {
                 // it mirrors: ⇧⌘S walks 列表 → 随机 → AutoMix → 列表, and the
                 // third stop is simply absent where it could do nothing.
                 Button("播放顺序") { player.cycleQueueOrder() }
-                    .keyboardShortcut(shortcuts.shortcut(for: .cycleQueueOrder, isGlobal: false).keyboardShortcut)
+                    .keyboardShortcut(shortcuts.shortcut(for: .cycleQueueOrder).keyboardShortcut)
                 Button("播放模式") { player.cyclePlaybackMode() }
-                    .keyboardShortcut(shortcuts.shortcut(for: .cycleRepeatMode, isGlobal: false).keyboardShortcut)
+                    .keyboardShortcut(shortcuts.shortcut(for: .cycleRepeatMode).keyboardShortcut)
 
                 Divider()
 
@@ -62,18 +62,18 @@ public struct KumoneApp: App {
                         Task { await account.toggleLike(trackID: track.id) }
                     }
                 }
-                .keyboardShortcut(shortcuts.shortcut(for: .toggleLike, isGlobal: false).keyboardShortcut)
+                .keyboardShortcut(shortcuts.shortcut(for: .toggleLike).keyboardShortcut)
                 .disabled(!player.hasCurrentTrack)
 
                 Button("歌词") {
                     player.activePanel = player.activePanel == .lyrics ? nil : .lyrics
                 }
-                .keyboardShortcut(shortcuts.shortcut(for: .toggleLyrics, isGlobal: false).keyboardShortcut)
+                .keyboardShortcut(shortcuts.shortcut(for: .toggleLyrics).keyboardShortcut)
 
                 Button("播放队列") {
                     player.activePanel = player.activePanel == .queue ? nil : .queue
                 }
-                .keyboardShortcut(shortcuts.shortcut(for: .toggleQueue, isGlobal: false).keyboardShortcut)
+                .keyboardShortcut(shortcuts.shortcut(for: .toggleQueue).keyboardShortcut)
             }
 
             #if DEBUG
@@ -142,7 +142,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .removeDuplicates()
             .sink { [weak self] scheme in self?.applyAppearance(scheme) }
         // App-internal shortcut monitoring (local monitor).
-        // Global hotkeys are handled by GlobalHotKeyManager via Carbon Event Hot Key API.
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             Self.interceptKeyEvent(event)
         }

@@ -47,12 +47,22 @@ struct NavigationDestinationTests {
     @Test func navigationContentFitsItsReservedSpace() {
         for width in [420.0, 650, 790, 1024, 1200] {
             for tabsWidth in [206.0, 2000] {
-                let layout = NavigationBarLayout(windowWidth: width, tabsWidth: tabsWidth)
-                #expect(layout.tabsWidth > 0)
-                #expect(layout.searchWidth > 24)
-                #expect(layout.tabsWidth + 2 * (layout.searchWidth + 18) <= layout.width + 0.001)
+                for searchExpanded in [false, true] {
+                    let layout = NavigationBarLayout(windowWidth: width, tabsWidth: tabsWidth,
+                                                     searchExpanded: searchExpanded)
+                    #expect(layout.tabsWidth > 0)
+                    #expect(layout.searchWidth > 24)
+                    let searchReservation = searchExpanded ? layout.searchWidth : 24
+                    #expect(layout.tabsWidth + 2 * (searchReservation + 18) <= layout.width + 0.001)
+                }
             }
         }
+
+        // Extra pinned tabs fit at the usual window width while search is closed.
+        let pinnedTabs = NavigationBarLayout(windowWidth: 790, tabsWidth: 350)
+        #expect(pinnedTabs.tabsWidth == 350)
+        let searching = NavigationBarLayout(windowWidth: 790, tabsWidth: 350, searchExpanded: true)
+        #expect(searching.tabsWidth < pinnedTabs.tabsWidth)
     }
 
     @Test @MainActor func titlebarAttachmentResizesWithoutCreatingToolbarItems() {

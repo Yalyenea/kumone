@@ -4,91 +4,74 @@ import Foundation
 import Testing
 @testable import KumoneCore
 
-@MainActor
-private final class ShortcutRegistryFixture: GlobalShortcutRegistry {
-    var result = GlobalHotKeyRegistrationResult.registered
-    var registered: [ShortcutAction] = []
-    var cleared: [ShortcutAction] = []
-
-    func registerForAction(_ action: ShortcutAction, shortcut: UserShortcut) -> GlobalHotKeyRegistrationResult {
-        registered.append(action)
-        return result
-    }
-
-    func unregister(action: ShortcutAction) { cleared.append(action) }
-}
-
 @Suite @MainActor
 struct ShortcutSettingsTests {
     @Test func migratesLegacyBindingsIncludingExplicitlyDisabledDefaults() throws {
         let suite = "kumone-shortcuts-\(UUID())"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
-        let global = UserShortcut(key: "k", modifiers: [.command, .option])
         defaults.set(try JSONEncoder().encode(UserShortcut.unassigned), forKey: "settings.shortcut.nextTrack")
-        defaults.set(try JSONEncoder().encode(global), forKey: "settings.globalShortcut.toggleLike")
+        // Removed global preferences must not block migration of local bindings.
+        defaults.set(Data("obsolete global shortcut".utf8), forKey: "settings.globalShortcut.toggleLike")
 
-        let registry = ShortcutRegistryFixture()
-        let manager = ShortcutManager(userDefaults: defaults, hotKeys: registry)
-        #expect(manager.shortcut(for: .nextTrack, isGlobal: false) == .unassigned)
-        #expect(manager.shortcut(for: .toggleLike, isGlobal: true) == global)
-        #expect(registry.registered == [.toggleLike])
+        let manager = ShortcutManager(userDefaults: defaults)
+        #expect(manager.shortcut(for: .nextTrack) == .unassigned)
+        #expect(manager.shortcut(for: .toggleLike) == ShortcutAction.toggleLike.defaultShortcut)
         #expect(defaults.data(forKey: ShortcutManager.bindingsKey) != nil)
         #expect(defaults.object(forKey: "settings.shortcut.nextTrack") == nil)
-        #expect(defaults.object(forKey: "settings.globalShortcut.toggleLike") == nil)
-        let restored = ShortcutManager(userDefaults: defaults, hotKeys: ShortcutRegistryFixture())
+        let restored = ShortcutManager(userDefaults: defaults)
         #expect(restored.appShortcuts == manager.appShortcuts)
-        #expect(restored.globalShortcuts == manager.globalShortcuts)
     }
 
-    @Test func resetPublishesOnceAndRestoresBothScopesPersistently() throws {
+    @Test func resetPublishesOnceAndRestoresAppBindingsPersistently() throws {
         let suite = "kumone-shortcuts-\(UUID())"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
-        let registry = ShortcutRegistryFixture()
-        let manager = ShortcutManager(userDefaults: defaults, hotKeys: registry)
-        try manager.clearShortcut(for: .nextTrack, isGlobal: false)
-        try manager.setShortcut(UserShortcut(key: "j", modifiers: [.control]), for: .toggleLike, isGlobal: true)
+        let manager = ShortcutManager(userDefaults: defaults)
+        try manager.clearShortcut(for: .nextTrack)
+        try manager.setShortcut(UserShortcut(key: "j", modifiers: [.control]), for: .toggleLike)
         var publications = 0
         let observation = manager.objectWillChange.sink { publications += 1 }
         defer { observation.cancel() }
 
         try manager.resetToDefaults()
         #expect(publications == 1)
-        #expect(registry.cleared == [.toggleLike])
-        let restored = ShortcutManager(userDefaults: defaults, hotKeys: ShortcutRegistryFixture())
+        let restored = ShortcutManager(userDefaults: defaults)
         for action in ShortcutAction.allCases {
-            #expect(restored.shortcut(for: action, isGlobal: false) == action.defaultShortcut)
-            #expect(restored.shortcut(for: action, isGlobal: true) == .unassigned)
+            #expect(restored.shortcut(for: action) == action.defaultShortcut)
         }
         try manager.resetToDefaults()
         #expect(publications == 1)
     }
 
-    @Test func registrationFailurePreservesBindingPersistenceAndNotifications() throws {
+    @Test func storedAppBindingsIgnoreRemovedGlobalScopeAndPersistEdits() throws {
         let suite = "kumone-shortcuts-\(UUID())"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
-        let registry = ShortcutRegistryFixture()
-        let manager = ShortcutManager(userDefaults: defaults, hotKeys: registry)
         let original = UserShortcut(key: "k", modifiers: [.option])
-        try manager.setShortcut(original, for: .toggleLike, isGlobal: true)
-        let stored = defaults.data(forKey: ShortcutManager.bindingsKey)
+        let app: [ShortcutAction: UserShortcut] = [.toggleLike: original, .nextTrack: .unassigned]
+        let appData = try JSONEncoder().encode(app)
+        let appJSON = try JSONSerialization.jsonObject(with: appData)
+        // The old combined payload can retain any global value; only app bindings are decoded.
+        let stored = try JSONSerialization.data(withJSONObject: ["app": appJSON, "global": "removed"])
+        defaults.set(stored, forKey: ShortcutManager.bindingsKey)
+        let manager = ShortcutManager(userDefaults: defaults)
+        #expect(manager.shortcut(for: .toggleLike) == original)
+        #expect(manager.shortcut(for: .nextTrack) == .unassigned)
         var publications = 0
         let observation = manager.objectWillChange.sink { publications += 1 }
         defer { observation.cancel() }
-        registry.result = .registrationFailed
-
-        #expect(throws: ShortcutSettingsError.registrationFailed) {
-            try manager.setShortcut(UserShortcut(key: "j", modifiers: [.option]), for: .toggleLike, isGlobal: true)
-        }
-        #expect(manager.shortcut(for: .toggleLike, isGlobal: true) == original)
+        try manager.setShortcut(original, for: .toggleLike)
         #expect(defaults.data(forKey: ShortcutManager.bindingsKey) == stored)
         #expect(publications == 0)
-        try manager.clearShortcut(for: .toggleLike, isGlobal: true)
-        #expect(registry.cleared == [.toggleLike])
-        #expect(manager.shortcut(for: .toggleLike, isGlobal: true) == .unassigned)
+        try manager.clearShortcut(for: .toggleLike)
+        #expect(manager.shortcut(for: .toggleLike) == .unassigned)
         #expect(publications == 1)
+        let saved = try #require(defaults.data(forKey: ShortcutManager.bindingsKey))
+        let savedJSON = try #require(JSONSerialization.jsonObject(with: saved) as? [String: Any])
+        #expect(savedJSON["global"] == nil)
+        let restored = ShortcutManager(userDefaults: defaults)
+        #expect(restored.appShortcuts == manager.appShortcuts)
     }
 
     @Test func resetReplacesUnreadableStoredBindingsWhileAlreadyUsingDefaults() throws {
@@ -97,7 +80,7 @@ struct ShortcutSettingsTests {
         defer { defaults.removePersistentDomain(forName: suite) }
         let unreadable = Data("invalid shortcut data".utf8)
         defaults.set(unreadable, forKey: ShortcutManager.bindingsKey)
-        let manager = ShortcutManager(userDefaults: defaults, hotKeys: ShortcutRegistryFixture())
+        let manager = ShortcutManager(userDefaults: defaults)
         #expect(defaults.data(forKey: ShortcutManager.bindingsKey) == unreadable)
         var publications = 0
         let observation = manager.objectWillChange.sink { publications += 1 }
@@ -107,18 +90,17 @@ struct ShortcutSettingsTests {
 
         #expect(defaults.data(forKey: ShortcutManager.bindingsKey) != unreadable)
         #expect(publications == 0)
-        let restored = ShortcutManager(userDefaults: defaults, hotKeys: ShortcutRegistryFixture())
+        let restored = ShortcutManager(userDefaults: defaults)
         #expect(restored.appShortcuts == manager.appShortcuts)
-        #expect(restored.globalShortcuts.isEmpty)
     }
 
     @Test func emptyKeyEventsDoNotMatchUnassignedActions() throws {
         let suite = "kumone-shortcuts-\(UUID())"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
-        let manager = ShortcutManager(userDefaults: defaults, hotKeys: ShortcutRegistryFixture())
-        try manager.clearShortcut(for: .togglePlayPause, isGlobal: false)
-        try manager.clearShortcut(for: .nextTrack, isGlobal: false)
+        let manager = ShortcutManager(userDefaults: defaults)
+        try manager.clearShortcut(for: .togglePlayPause)
+        try manager.clearShortcut(for: .nextTrack)
 
         #expect(!manager.handleKeyEvent(try keyEvent(code: 0, key: "")))
     }

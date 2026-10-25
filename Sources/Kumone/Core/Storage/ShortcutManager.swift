@@ -132,55 +132,28 @@ public enum ShortcutAction: String, Codable, CaseIterable, Identifiable, Hashabl
     }
 }
 
-// MARK: - Global shortcut registration
-
-@MainActor
-protocol GlobalShortcutRegistry {
-    func registerForAction(_ action: ShortcutAction, shortcut: UserShortcut) -> GlobalHotKeyRegistrationResult
-    func unregister(action: ShortcutAction)
-}
-
-extension GlobalHotKeyManager: GlobalShortcutRegistry {}
-
 private struct ShortcutBindings: Codable, Equatable {
     var app: [ShortcutAction: UserShortcut]
-    var global: [ShortcutAction: UserShortcut]
 
     static var defaults: Self {
-        // Global hotkeys are opt-in; resetting must not claim system-wide key combinations.
-        Self(app: Dictionary(uniqueKeysWithValues: ShortcutAction.allCases.map { ($0, $0.defaultShortcut) }), global: [:])
-    }
-}
-
-enum ShortcutSettingsError: LocalizedError, Equatable {
-    case invalidShortcut, registrationFailed
-
-    var errorDescription: String? {
-        switch self {
-        case .invalidShortcut: String(localized: "此组合无法用作全局快捷键")
-        case .registrationFailed: String(localized: "快捷键不可用，原设置已保留")
-        }
+        Self(app: Dictionary(uniqueKeysWithValues: ShortcutAction.allCases.map { ($0, $0.defaultShortcut) }))
     }
 }
 
 @MainActor
 final class ShortcutManager: ObservableObject {
-    static let shared = ShortcutManager(userDefaults: .standard, hotKeys: GlobalHotKeyManager.shared)
+    static let shared = ShortcutManager(userDefaults: .standard)
 
     @Published private var bindings = ShortcutBindings.defaults
     var appShortcuts: [ShortcutAction: UserShortcut] { bindings.app }
-    var globalShortcuts: [ShortcutAction: UserShortcut] { bindings.global }
 
     private let userDefaults: UserDefaults
-    private let hotKeys: any GlobalShortcutRegistry
     private let logger = Logger(subsystem: "Kumone", category: "Shortcuts")
     static let bindingsKey = "settings.shortcuts"
     private let appPrefix = "settings.shortcut."
-    private let globalPrefix = "settings.globalShortcut."
 
-    init(userDefaults: UserDefaults, hotKeys: any GlobalShortcutRegistry) {
+    init(userDefaults: UserDefaults) {
         self.userDefaults = userDefaults
-        self.hotKeys = hotKeys
         loadShortcuts()
     }
 
@@ -194,16 +167,12 @@ final class ShortcutManager: ObservableObject {
                     if let data = userDefaults.data(forKey: appPrefix + action.rawValue) {
                         migrated.app[action] = try JSONDecoder().decode(UserShortcut.self, from: data)
                     }
-                    if let data = userDefaults.data(forKey: globalPrefix + action.rawValue) {
-                        migrated.global[action] = try JSONDecoder().decode(UserShortcut.self, from: data)
-                    }
                 }
                 let data = try JSONEncoder().encode(migrated)
                 userDefaults.set(data, forKey: Self.bindingsKey)
                 bindings = migrated
                 for action in ShortcutAction.allCases {
                     userDefaults.removeObject(forKey: appPrefix + action.rawValue)
-                    userDefaults.removeObject(forKey: globalPrefix + action.rawValue)
                 }
             }
         } catch {
@@ -211,64 +180,33 @@ final class ShortcutManager: ObservableObject {
             logger.error("Cannot load shortcuts: \(error.localizedDescription)")
             ToastCenter.shared.show(String(localized: "无法读取快捷键，暂用默认设置"))
         }
-        for (action, shortcut) in globalShortcuts where !shortcut.key.isEmpty {
-            switch hotKeys.registerForAction(action, shortcut: shortcut) {
-            case .registered: break
-            case .invalidShortcut, .registrationFailed:
-                logger.error("Cannot restore global shortcut for \(action.rawValue)")
-                ToastCenter.shared.show(String(localized: "全局快捷键未能启用"))
-            }
-        }
     }
 
-    /// 设置快捷键，采用"先注册新快捷键，成功后再替换旧快捷键"策略。
-    /// 若系统注册失败，UserDefaults 不会被修改，原有快捷键保持不变。
-    func setShortcut(_ shortcut: UserShortcut, for action: ShortcutAction, isGlobal: Bool) throws {
-        guard shortcut != self.shortcut(for: action, isGlobal: isGlobal) else { return }
+    func setShortcut(_ shortcut: UserShortcut, for action: ShortcutAction) throws {
+        guard shortcut != self.shortcut(for: action) else { return }
         var updated = bindings
-        if isGlobal { updated.global[action] = shortcut }
-        else { updated.app[action] = shortcut }
+        updated.app[action] = shortcut
         let data = try JSONEncoder().encode(updated)
-
-        if isGlobal {
-            if shortcut.key.isEmpty {
-                hotKeys.unregister(action: action)
-            } else {
-                switch hotKeys.registerForAction(action, shortcut: shortcut) {
-                case .registered: break
-                case .invalidShortcut: throw ShortcutSettingsError.invalidShortcut
-                case .registrationFailed: throw ShortcutSettingsError.registrationFailed
-                }
-            }
-        }
         userDefaults.set(data, forKey: Self.bindingsKey)
         bindings = updated
     }
 
-    func clearShortcut(for action: ShortcutAction, isGlobal: Bool) throws {
-        try setShortcut(.unassigned, for: action, isGlobal: isGlobal)
+    func clearShortcut(for action: ShortcutAction) throws {
+        try setShortcut(.unassigned, for: action)
     }
 
     func resetToDefaults() throws {
         let defaults = ShortcutBindings.defaults
         let data = try JSONEncoder().encode(defaults)
-        for (action, shortcut) in globalShortcuts where !shortcut.key.isEmpty {
-            hotKeys.unregister(action: action)
-        }
         userDefaults.set(data, forKey: Self.bindingsKey)
         if bindings != defaults { bindings = defaults }
     }
 
-    func shortcut(for action: ShortcutAction, isGlobal: Bool) -> UserShortcut {
-        if isGlobal {
-            return globalShortcuts[action] ?? .unassigned
-        } else {
-            return appShortcuts[action] ?? action.defaultShortcut
-        }
+    func shortcut(for action: ShortcutAction) -> UserShortcut {
+        appShortcuts[action] ?? action.defaultShortcut
     }
 
     // MARK: - App-internal Key Event Matching (local monitor only)
-    // Global hotkeys are handled by GlobalHotKeyManager via Carbon Event Hot Key API.
 
     func handleKeyEvent(_ event: NSEvent) -> Bool {
         let currentModifiers = UserShortcut.ShortcutModifiers(nsFlags: event.modifierFlags)

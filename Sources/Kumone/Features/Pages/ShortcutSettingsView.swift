@@ -1,49 +1,28 @@
 import SwiftUI
 import AppKit
 
-private enum ShortcutScope: Hashable {
-    case inApp, global
-}
-
 struct ShortcutSettingsView: View {
     @ObservedObject private var manager = ShortcutManager.shared
-    @State private var scope = ShortcutScope.inApp
     @State private var recordingAction: ShortcutAction?
 
     var body: some View {
         VStack(spacing: 0) {
-            Picker("作用范围", selection: Binding(
-                get: { scope },
-                set: { newScope in
-                    recordingAction = nil
-                    scope = newScope
-                }
-            )) {
-                Text("应用内").tag(ShortcutScope.inApp)
-                Text("全局").tag(ShortcutScope.global)
-            }
-            .labelsHidden()
-            .pickerStyle(.segmented)
-            .padding()
-
             Text("点击快捷键开始录制。Delete 清除，Esc 取消。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 20)
+                .padding(.top, 16)
                 .padding(.bottom, 4)
 
             Form {
                 Section {
                     ForEach(ShortcutAction.allCases) { action in
-                        let rowScope = scope
-                        ShortcutRow(action: action, isGlobal: rowScope == .global,
-                                    shortcut: manager.shortcut(for: action, isGlobal: rowScope == .global),
+                        ShortcutRow(action: action,
+                                    shortcut: manager.shortcut(for: action),
                                     isRecording: Binding(
-                                        get: { recordingAction == action && scope == rowScope },
+                                        get: { recordingAction == action },
                                         set: { recording in
-                                            // Ignore callbacks from a row removed by a scope or recording change.
-                                            guard scope == rowScope else { return }
                                             if recording { recordingAction = action }
                                             else if recordingAction == action { recordingAction = nil }
                                         }
@@ -69,7 +48,6 @@ struct ShortcutSettingsView: View {
 
 struct ShortcutRow: View {
     let action: ShortcutAction
-    let isGlobal: Bool
     let shortcut: UserShortcut
     @Binding var isRecording: Bool
     @FocusState private var isFocused: Bool
@@ -108,7 +86,7 @@ struct ShortcutRow: View {
                 ShortcutRecorderView(isRecording: $isRecording, onClear: clearShortcut) { key, modifiers in
                     do {
                         try ShortcutManager.shared.setShortcut(
-                            UserShortcut(key: key, modifiers: modifiers), for: action, isGlobal: isGlobal)
+                            UserShortcut(key: key, modifiers: modifiers), for: action)
                     } catch { ToastCenter.shared.show(error.localizedDescription) }
                 }
                 .frame(width: 0, height: 0)
@@ -119,7 +97,7 @@ struct ShortcutRow: View {
 
     private func clearShortcut() {
         do {
-            try ShortcutManager.shared.clearShortcut(for: action, isGlobal: isGlobal)
+            try ShortcutManager.shared.clearShortcut(for: action)
             isRecording = false
         } catch { ToastCenter.shared.show(error.localizedDescription) }
     }

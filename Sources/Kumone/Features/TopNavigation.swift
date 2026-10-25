@@ -96,11 +96,13 @@ struct NavigationBarLayout {
     let searchWidth: CGFloat
     let tabsWidth: CGFloat
 
-    init(windowWidth: CGFloat, tabsWidth: CGFloat) {
+    init(windowWidth: CGFloat, tabsWidth: CGFloat, searchExpanded: Bool = false) {
         // Keep the centered content clear of window controls and trailing actions.
         width = max(0, windowWidth - 260)
         searchWidth = min(200, width * 0.22)
-        self.tabsWidth = min(tabsWidth, max(0, width - 2 * (searchWidth + 18)))
+        // Reserve only the search icon until its field is actually expanded.
+        let searchReservation = searchExpanded ? searchWidth : 24
+        self.tabsWidth = min(tabsWidth, max(0, width - 2 * (searchReservation + 18)))
     }
 }
 
@@ -112,6 +114,7 @@ struct TopNavigationBar: View {
     @EnvironmentObject private var account: AccountStore
     @EnvironmentObject private var settings: SettingsManager
     @State private var tabsWidth: CGFloat = 0
+    @State private var searchExpanded = false
 
     private var pages: [RootPage] {
         RootPage.primaryPages + settings.pinnedNavigationPages.filter {
@@ -120,13 +123,14 @@ struct TopNavigationBar: View {
     }
 
     var body: some View {
-        let layout = NavigationBarLayout(windowWidth: windowWidth, tabsWidth: tabsWidth)
+        let layout = NavigationBarLayout(windowWidth: windowWidth, tabsWidth: tabsWidth,
+                                         searchExpanded: searchExpanded)
 
         ScrollViewReader { proxy in
             ScrollView(.horizontal) {
                 HStack(spacing: 18) {
-                    ForEach(pages) { page in
-                        tab(page).id(page)
+                    ForEach(Array(pages.enumerated()), id: \.element) { index, page in
+                        tab(page, index: index).id(page)
                     }
                 }
                 .fixedSize()
@@ -143,12 +147,13 @@ struct TopNavigationBar: View {
         .frame(width: layout.width, height: 26)
         // Expansion stays inside this item's bounds without changing its size.
         .overlay(alignment: .leading) {
-            ToolbarSearchField(expandedWidth: layout.searchWidth, onSubmit: onSearch)
+            ToolbarSearchField(expandedWidth: layout.searchWidth, expanded: $searchExpanded,
+                               onSubmit: onSearch)
                 .offset(x: (layout.width + layout.tabsWidth) / 2 + 18)
         }
     }
 
-    private func tab(_ page: RootPage) -> some View {
+    private func tab(_ page: RootPage, index: Int) -> some View {
         Button {
             selection = page
         } label: {
@@ -160,6 +165,10 @@ struct TopNavigationBar: View {
         }
         .buttonStyle(.plain)
         .noFocusRing()
+        .keyboardShortcut(index < 9
+            ? KeyboardShortcut(KeyEquivalent(Character(String(index + 1))), modifiers: .command)
+            : nil)
+        .help(Text(page.title) + Text(index < 9 ? "  ⌘\(index + 1)" : ""))
         .accessibilityAddTraits(selection == page ? .isSelected : [])
     }
 }
@@ -267,9 +276,9 @@ private struct MorePanelRow: View {
 
 struct ToolbarSearchField: View {
     let expandedWidth: CGFloat
+    @Binding var expanded: Bool
     let onSubmit: (String) -> Void
 
-    @State private var expanded = false
     @State private var text = ""
     @State private var placeholder = String(localized: "搜索音乐、歌手、专辑")
     @State private var placeholderQuery = ""
@@ -323,7 +332,6 @@ struct ToolbarSearchField: View {
         .frame(width: expanded ? expandedWidth : 24, height: 26)
         .background(.primary.opacity(expanded ? 0.06 : 0), in: Capsule())
         .clipShape(Capsule())
-        .frame(width: expandedWidth, height: 26, alignment: .leading)
         .task {
             if let keyword = try? await NeteaseAPI.searchDefaultKeyword(), !keyword.isEmpty {
                 placeholder = keyword
