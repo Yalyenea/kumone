@@ -16,6 +16,8 @@ struct NowPlayingView: View {
         GeometryReader { geo in
             ZStack {
                 backdrop
+                    // Continue the same gradient beneath the persistent transport.
+                    .padding(.bottom, -Theme.Layout.playerBarHeight)
                 VStack(spacing: 0) {
                     pageHeader
                     GeometryReader { content in

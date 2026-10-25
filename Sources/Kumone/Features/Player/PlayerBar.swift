@@ -30,9 +30,7 @@ struct PlayerBar: View {
         }
         .frame(height: Theme.Layout.playerBarHeight)
         .background {
-            if player.showNowPlaying {
-                Color(white: 0.075)
-            } else {
+            if !player.showNowPlaying {
                 Platform.windowBackgroundColor
             }
         }
