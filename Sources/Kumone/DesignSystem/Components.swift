@@ -124,6 +124,7 @@ struct SectionHeader: View {
                     }
                 }
                 .buttonStyle(.plain)
+                .noFocusRing()
                 .onHover { hovering in
                     withAnimation(AppAnimation.quick) { isHovering = hovering }
                 }
@@ -208,6 +209,7 @@ struct PlayOverlayButton: View {
                 .shadow(color: .black.opacity(0.3), radius: 8, y: 3)
         }
         .buttonStyle(.pressable)
+        .noFocusRing()
         .opacity(visible ? 1 : 0)
         .scaleEffect(visible ? 1 : 0.7)
         .animation(AppAnimation.spring, value: visible)

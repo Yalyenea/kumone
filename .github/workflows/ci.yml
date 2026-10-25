@@ -25,7 +25,5 @@ jobs:
         run: swift test
 
       # Verify the app bundle with a local ad-hoc signature.
-      - name: Build app (universal, unsigned)
-        run: |
-          ARCHES="arm64 x86_64" \
-            Scripts/build-app.sh release
+      - name: Build app (Apple Silicon, ad-hoc signed)
+        run: Scripts/build-app.sh release

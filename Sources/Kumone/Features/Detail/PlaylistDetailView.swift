@@ -288,7 +288,6 @@ struct PlaylistDetailView: View {
 
     private var playable: [Track] {
         let tracks = model.orderedTracks
-        if SettingsManager.shared.canResolveUnblockedTracks { return tracks }
         return tracks.filter { track in
             downloads.offlineTracksByID[track.id] != nil || track.playability(privilege: model.privileges[track.id],
                            isLoggedIn: account.isLoggedIn,

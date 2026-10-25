@@ -26,12 +26,14 @@ extension EnvironmentValues {
 
 struct PlayerChromeModifier: ViewModifier {
     @EnvironmentObject private var player: PlayerService
+    @Environment(\.colorScheme) private var colorScheme
     func body(content: Content) -> some View {
         VStack(spacing: 0) {
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .overlay(alignment: .trailing) { rightPanel }
             PlayerBar()
+                .environment(\.colorScheme, player.showNowPlaying ? .dark : colorScheme)
         }
         .animation(AppAnimation.standard, value: player.activePanel)
     }
@@ -47,6 +49,7 @@ struct PlayerChromeModifier: ViewModifier {
                     QueuePanel()
                 }
             }
+            .environment(\.colorScheme, player.showNowPlaying ? .dark : colorScheme)
             .padding(.top, 12)
             .padding(.bottom, 10)
             .padding(.trailing, 16)

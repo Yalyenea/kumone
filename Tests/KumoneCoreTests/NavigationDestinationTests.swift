@@ -79,8 +79,11 @@ struct NavigationDestinationTests {
         }
 
         titlebar.setFadedOut(true)
-        #expect(titlebar.view.isHidden)
+        // Immersive controls need the accessory's container removed from
+        // hit testing, not just an invisible hosting view.
+        #expect(window.titlebarAccessoryViewControllers.isEmpty)
         titlebar.setFadedOut(false)
-        #expect(!titlebar.view.isHidden)
+        #expect(window.titlebarAccessoryViewControllers.count == 1)
+        #expect(window.titlebarAccessoryViewControllers.first === titlebar)
     }
 }

@@ -102,11 +102,8 @@ struct MainWindow: View {
                 toolbarHidden: nowPlayingChromeHidden
             )
         )
-        .playerChrome()
         .modifier(OfflinePlaybackAlert(player: player, onDownloads: { openDestination(.downloaded) }))
         .modifier(MeteredDownloadAlert())
-        .environment(\.openLogin, { showLogin = true })
-        .environment(\.openDestination, openDestination)
         .modifier(PlaybackLifecycle())
         .onReceive(NotificationCenter.default.publisher(for: .showDownloadedMusic)) { _ in
             player.showNowPlaying = false
@@ -162,6 +159,7 @@ struct MainWindow: View {
         }
         .sheet(isPresented: $showLogin) {
             LoginSheet()
+                .noFocusRing()
         }
         .overlay {
             // The page is put away while the window is off screen
@@ -179,6 +177,11 @@ struct MainWindow: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
+        // One persistent transport sits above both page surfaces, so opening
+        // Now Playing never duplicates controls or hides its queue panel.
+        .playerChrome()
+        .environment(\.openLogin, { showLogin = true })
+        .environment(\.openDestination, openDestination)
         .overlay(alignment: .top) {
             if let toast = toasts.current {
                 ToastView(toast: toast)
@@ -188,6 +191,7 @@ struct MainWindow: View {
         }
         .animation(AppAnimation.smooth, value: player.showNowPlaying)
         .animation(.spring(duration: 0.3), value: toasts.current)
+        .noFocusRing()
     }
 
     private var detailStack: some View {
@@ -200,6 +204,10 @@ struct MainWindow: View {
         }
         .onChange(of: selection) { _ in
             path = []
+            AppDelegate.shared?.mainWindow?.clearAutoFocusIfNeeded()
+        }
+        .onChange(of: path) { _ in
+            AppDelegate.shared?.mainWindow?.clearAutoFocusIfNeeded()
         }
     }
 
@@ -483,6 +491,7 @@ struct MainWindowConfigurator: NSViewRepresentable {
                 window.delegate = self
             }
             AppDelegate.shared?.mainWindow = window
+            window.clearAutoFocusIfNeeded()
             observeFullScreenChanges(of: window)
             observeWindowVisibility(of: window)
             refreshWindowVisibility()
@@ -586,6 +595,7 @@ struct MainWindowConfigurator: NSViewRepresentable {
             if let window {
                 ambientAppearance.updateLayout(in: window)
                 titlebar.updateLayout(in: window)
+                window.contentView?.disableFocusRingsRecursively()
             }
             refreshWindowVisibility()
         }

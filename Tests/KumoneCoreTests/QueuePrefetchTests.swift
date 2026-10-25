@@ -115,7 +115,7 @@ struct QueuePrefetchTests {
 
     private func request(_ ids: [Int], scope: String? = "a", pending: Set<Int> = []) throws -> QueuePrefetchRequest {
         .init(scope: scope, currentTrackID: 1, tracks: try ids.map { try queueTrack($0) }, quality: "exhigh",
-              allowsUnblock: false, pendingDownloadTrackIDs: pending)
+              pendingDownloadTrackIDs: pending)
     }
 
     @Test func fillsTheCacheWithUpcomingSongsInOrder() async throws {
@@ -131,11 +131,11 @@ struct QueuePrefetchTests {
         // landed in the cache at the quality the player will ask for.
         #expect(log.resolved == [2, 3])
         #expect(log.kept.map(\.0) == [2, 3] && log.kept.allSatisfy { $0.1 == "a" })
-        let entry = try #require(try await cache.entry(for: 2, requestedQuality: "exhigh", allowsUnblock: false))
+        let entry = try #require(try await cache.entry(for: 2, requestedQuality: "exhigh"))
         #expect(entry.metadata.byteCount == Int64(fixture.data.count) && entry.metadata.servedQuality == "exhigh")
         #expect(try Data(contentsOf: entry.fileURL) == fixture.data)
-        #expect(try await cache.entry(for: 3, requestedQuality: "exhigh", allowsUnblock: false) != nil)
-        #expect(try await cache.entry(for: 1, requestedQuality: "exhigh", allowsUnblock: false) == nil)
+        #expect(try await cache.entry(for: 3, requestedQuality: "exhigh") != nil)
+        #expect(try await cache.entry(for: 1, requestedQuality: "exhigh") == nil)
         #expect(try FileManager.default.contentsOfDirectory(atPath: directory.appendingPathComponent("partial").path).isEmpty)
 
         // The same window again is a no-op.
@@ -159,7 +159,7 @@ struct QueuePrefetchTests {
         prefetcher.update(try request([1, 2, 3, 4]))
         try await waitForPrefetch { prefetcher.completedTrackIDs == [4, 3] }
         #expect(log.resolved == [4, 3])
-        #expect(try await cache.entry(for: 3, requestedQuality: "exhigh", allowsUnblock: false) != nil)
+        #expect(try await cache.entry(for: 3, requestedQuality: "exhigh") != nil)
     }
 
     @Test func aSongOverTheWindowBudgetEndsTheWindowWithoutATransfer() async throws {
@@ -175,7 +175,7 @@ struct QueuePrefetchTests {
         try await Task.sleep(for: .milliseconds(50))
 
         #expect(log.resolved == [2, 3])
-        #expect(try await cache.entry(for: 3, requestedQuality: "exhigh", allowsUnblock: false) == nil)
+        #expect(try await cache.entry(for: 3, requestedQuality: "exhigh") == nil)
         #expect(try FileManager.default.contentsOfDirectory(atPath: directory.appendingPathComponent("partial").path).isEmpty)
     }
 
@@ -206,7 +206,7 @@ struct QueuePrefetchTests {
 
         #expect(prefetcher.completedTrackIDs.isEmpty)
         #expect(log.kept.isEmpty)
-        #expect(try await cache.entry(for: 2, requestedQuality: "exhigh", allowsUnblock: false) == nil)
+        #expect(try await cache.entry(for: 2, requestedQuality: "exhigh") == nil)
         #expect(((try? FileManager.default.contentsOfDirectory(atPath: directory.appendingPathComponent("partial").path)) ?? []).isEmpty)
     }
 }

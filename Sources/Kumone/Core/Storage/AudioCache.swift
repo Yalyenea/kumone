@@ -2,14 +2,6 @@ import Foundation
 
 enum AudioCacheSource: Codable, Equatable, Sendable {
     case netease
-    case unblock(String)
-
-    var requiresUnblockEnabled: Bool {
-        if case .unblock = self {
-            return true
-        }
-        return false
-    }
 }
 
 struct AudioCacheMetadata: Codable, Equatable, Sendable {
@@ -69,8 +61,7 @@ enum AudioCacheError: LocalizedError {
 }
 
 /// Disk-backed, size-bounded audio cache. Completed entries are keyed by track
-/// id, while their metadata preserves the requested quality and source so a
-/// third-party file is never used after the unblock setting is disabled.
+/// id, while their metadata preserves the requested quality and source.
 actor AudioCache {
     static let shared = AudioCache()
     static let defaultMaximumSizeMB = 500
@@ -97,29 +88,24 @@ actor AudioCache {
 
     func entry(
         for trackID: Int,
-        requestedQuality: String,
-        allowsUnblock: Bool
+        requestedQuality: String
     ) throws -> AudioCacheEntry? {
         guard let entry = try loadEntry(trackID: trackID) else { return nil }
         guard entry.metadata.requestedQuality == requestedQuality else { return nil }
-        guard allowsUnblock || !entry.metadata.source.requiresUnblockEnabled else { return nil }
         try touch(entry.fileURL)
         return entry
     }
 
-    func fallbackEntry(for trackID: Int, allowsUnblock: Bool) throws -> AudioCacheEntry? {
+    func fallbackEntry(for trackID: Int) throws -> AudioCacheEntry? {
         guard let entry = try loadEntry(trackID: trackID) else { return nil }
-        guard allowsUnblock || !entry.metadata.source.requiresUnblockEnabled else { return nil }
         try touch(entry.fileURL)
         return entry
     }
 
     /// Tracks with a complete cached copy this player may use, for offline
     /// availability; the same rule as `fallbackEntry`.
-    func cachedTrackIDs(allowsUnblock: Bool) throws -> Set<Int> {
-        Set(try completedEntries()
-            .filter { allowsUnblock || !$0.metadata.source.requiresUnblockEnabled }
-            .map(\.metadata.trackID))
+    func cachedTrackIDs() throws -> Set<Int> {
+        Set(try completedEntries().map(\.metadata.trackID))
     }
 
     func retain(_ entry: AudioCacheEntry) -> UUID {

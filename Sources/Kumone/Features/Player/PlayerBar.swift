@@ -2,317 +2,171 @@ import SwiftUI
 
 struct PlayerBar: View {
     @EnvironmentObject private var player: PlayerService
-    @EnvironmentObject private var account: AccountStore
     @EnvironmentObject private var settings: SettingsManager
-    @State private var narrow = false
-    @State private var showMore = false
 
     var body: some View {
         GeometryReader { proxy in
-            if proxy.size.width < 700 {
-                VStack(spacing: 4) {
-                    HStack(spacing: 8) {
-                        songInfoSection(compact: true)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        transportControls(compact: true)
-                        Button { showMore.toggle() } label: {
-                            Image(systemName: "ellipsis")
-                                .frame(width: 28, height: 32)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .help("更多播放选项")
-                        .accessibilityLabel("更多播放选项")
-                        .popover(isPresented: $showMore, arrowEdge: .top) { moreOptions }
-                    }
-                    ScrubberLane()
+            let compact = proxy.size.width < 640
+            let diameter: CGFloat = compact ? 26 : 32
+            let gap: CGFloat = compact ? 6 : 10
+            let transportWidth = diameter * 4 + 36 + gap * 4
+            let sideWidth = min(240, max(0, (proxy.size.width - transportWidth) / 2 - 20))
+
+            // Reserve equal side regions around the transport. Even the
+            // narrow layout keeps every action visible and Play centred.
+            ZStack {
+                HStack(spacing: 0) {
+                    songInfoSection(compact: compact, diameter: diameter)
+                        .frame(width: sideWidth, alignment: .leading)
+                    Spacer(minLength: 0)
+                    optionsSection(compact: compact, diameter: diameter,
+                                   showsQuality: proxy.size.width >= 1000)
+                        .frame(width: sideWidth, alignment: .trailing)
                 }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
+                .padding(.horizontal, 12)
+                transportControls(diameter: diameter, gap: gap)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .frame(height: Theme.Layout.playerBarHeight)
+        .background {
+            if player.showNowPlaying {
+                Color(white: 0.075)
             } else {
-                HStack(spacing: 12) {
-                    songInfoSection(compact: false)
-                        .frame(width: min(252, proxy.size.width * 0.25), alignment: .leading)
-                    centerSection.frame(maxWidth: .infinity)
-                    optionsSection(compact: proxy.size.width < 960)
-                }
-                .padding(.horizontal, 18)
+                Platform.windowBackgroundColor
             }
         }
-        .onGeometryChange(for: Bool.self) { $0.size.width < 700 } action: { narrow = $0 }
-        .frame(height: narrow ? 82 : Theme.Layout.playerBarHeight)
-        .background(Platform.windowBackgroundColor)
-        .overlay(alignment: .top) { Divider() }
+        .overlay(alignment: .top) { ScrubberLane().offset(y: -7) }
     }
 
-    // MARK: - Left: artwork + titles + like
-
-    private func songInfoSection(compact: Bool) -> some View {
-        HStack(spacing: 10) {
-            artworkButton
-            VStack(alignment: .leading, spacing: 1) {
-                HStack(spacing: 6) {
-                    MarqueeText(text: player.currentTrack?.name ?? String(localized: "未在播放"))
-                        .frame(height: 17)
-                    if !compact, player.currentTrack?.fee == 1 {
-                        VIPBadge()
-                    }
-                }
+    private func songInfoSection(compact: Bool, diameter: CGFloat) -> some View {
+        HStack(spacing: compact ? 5 : 8) {
+            artworkButton(size: compact ? 32 : 40)
+            VStack(alignment: .leading, spacing: 2) {
+                MarqueeText(text: player.currentTrack?.name ?? String(localized: "未在播放"))
+                    .frame(height: 17)
                 Text(player.currentTrack?.artistNames ?? "Kumone")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+                    .help(player.currentTrack?.artistNames ?? "Kumone")
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            if !compact, let track = player.currentTrack {
-                LikeButton(trackID: track.id)
+            if let track = player.currentTrack {
+                LikeButton(trackID: track.id, size: compact ? 14 : 16, diameter: diameter)
             }
         }
     }
 
-    private var artworkButton: some View {
+    private func artworkButton(size: CGFloat) -> some View {
         Button {
             guard player.hasCurrentTrack else { return }
-            withAnimation(AppAnimation.smooth) {
-                player.showNowPlaying = true
-            }
+            withAnimation(AppAnimation.smooth) { player.showNowPlaying.toggle() }
         } label: {
             CachedAsyncImage(url: player.currentTrack?.album.picUrl?.resizedImageURL(128))
-                .frame(width: 38, height: 38)
-                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.small, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: Theme.Radius.small, style: .continuous)
-                        .strokeBorder(.primary.opacity(0.1), lineWidth: 0.5)
-                )
+                .frame(width: size, height: size)
+                .clipShape(Circle())
+                .overlay { Circle().strokeBorder(.primary.opacity(0.1), lineWidth: 0.5) }
         }
         .buttonStyle(.pressable)
         .noFocusRing()
-        .help("打开播放页")
-        .accessibilityLabel("打开播放页")
+        .help(player.showNowPlaying ? "收起播放页" : "打开播放页")
+        .accessibilityLabel(player.showNowPlaying ? "收起播放页" : "打开播放页")
     }
 
-    // MARK: - Queue-order control
+    private func transportControls(diameter: CGFloat, gap: CGFloat) -> some View {
+        HStack(spacing: gap) {
+            PlayerIconButton(
+                icon: player.isFMMode ? "wave.3.right" : player.playbackMode.symbolName,
+                size: 16, diameter: diameter,
+                isActive: player.playbackMode != .ordered,
+                disabled: player.isFMMode
+            ) { player.cyclePlaybackMode() }
+            .help(player.isFMMode ? String(localized: "私人漫游中") : player.playbackMode.displayName)
+            .accessibilityLabel(player.isFMMode ? String(localized: "私人漫游中") : player.playbackMode.displayName)
 
-    /// The queue-order button's three platform-dependent values. macOS cycles
-    /// Cycle through list order, shuffle and AutoMix.
-
-    private var queueOrderIcon: String {
-        player.queueOrder.symbolName
-    }
-
-    private var queueOrderIsActive: Bool {
-        player.queueOrder != .listed
-    }
-
-    private var queueOrderHelp: LocalizedStringKey {
-        player.queueOrder.controlHelp
-    }
-
-    private func cycleQueueOrder() {
-        player.cycleQueueOrder()
-    }
-
-    // MARK: - Center: transport + scrubber
-
-    private var centerSection: some View {
-        VStack(spacing: 3) {
-            transportControls(compact: false)
-            ScrubberLane()
-        }
-        .padding(.vertical, 5)
-        .opacity(player.hasCurrentTrack ? 1 : 0.5)
-    }
-
-    private func transportControls(compact: Bool) -> some View {
-        HStack(spacing: 6) {
-            if !compact, player.isFMMode {
-                PlayerIconButton(icon: "trash", size: 12) {
-                    player.fmTrash()
-                }
-                .help("不喜欢，换一首")
-            } else if !compact {
-                // AutoMix joins the shuffle cycle when its order setting is enabled.
-                PlayerIconButton(
-                    icon: queueOrderIcon, size: 12,
-                    isActive: queueOrderIsActive,
-                    action: cycleQueueOrder
-                )
-                .help(queueOrderHelp)
+            PlayerIconButton(icon: player.isFMMode ? "trash" : "backward.end.fill",
+                             size: 17, diameter: diameter) {
+                if player.isFMMode { player.fmTrash() } else { player.previous() }
             }
-
-            if compact, player.isFMMode {
-                PlayerIconButton(icon: "trash", size: 14) { player.fmTrash() }
-                    .help("不喜欢，换一首")
-                    .accessibilityLabel("不喜欢，换一首")
-            } else {
-                PlayerIconButton(icon: "backward.fill", size: 14, disabled: player.isFMMode) {
-                    player.previous()
-                }
-                .accessibilityLabel("上一首")
-            }
+            .help(player.isFMMode ? "不喜欢，换一首" : "上一首")
+            .accessibilityLabel(player.isFMMode ? "不喜欢，换一首" : "上一首")
 
             playPauseButton
 
-            PlayerIconButton(icon: "forward.fill", size: 14) {
+            PlayerIconButton(icon: "forward.end.fill", size: 17, diameter: diameter) {
                 player.next()
             }
+            .help("下一首")
             .accessibilityLabel("下一首")
 
-            if !compact, player.isFMMode {
-                Image(systemName: "wave.3.right.circle.fill")
-                    .font(.system(size: 12))
-                    .foregroundStyle(Theme.accent)
-                    .frame(width: 26, height: 26)
-                    .help("私人漫游中")
-            } else if !compact {
-                PlayerIconButton(
-                    icon: player.repeatMode == .one ? "repeat.1" : "repeat", size: 12,
-                    isActive: player.repeatMode != .off
-                ) {
-                    player.cycleRepeatMode()
-                }
-                .help("循环模式")
+            PlayerIconButton(icon: "list.bullet", size: 16, diameter: diameter,
+                             isActive: player.activePanel == .queue, disabled: player.isFMMode) {
+                player.activePanel = player.activePanel == .queue ? nil : .queue
             }
+            .help("播放队列")
+            .accessibilityLabel("播放队列")
         }
+        .disabled(!player.hasCurrentTrack)
     }
 
     private var playPauseButton: some View {
-        Button {
-            player.togglePlayPause()
-        } label: {
+        Button { player.togglePlayPause() } label: {
             ZStack {
-                Circle()
-                    .fill(Theme.accent)
-                    .frame(width: 30, height: 30)
+                Circle().fill(Theme.accent).frame(width: 36, height: 36)
                 if player.isBuffering && player.isPlaying {
-                    ProgressView()
-                        .controlSize(.small)
-                        .tint(.white)
-                        .scaleEffect(0.7)
+                    ProgressView().controlSize(.small).tint(.white).scaleEffect(0.8)
                 } else {
                     Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                        .font(.system(size: 12.5, weight: .bold))
+                        .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(.white)
+                        .offset(x: player.isPlaying ? 0 : 1)
                         .contentTransition(.opacity)
                 }
             }
         }
         .buttonStyle(.pressable)
-        .padding(.horizontal, 2)
         .accessibilityLabel(player.isPlaying ? "暂停" : "播放")
+        .help(player.isPlaying ? "暂停" : "播放")
     }
 
-    // MARK: - Right: quality / panels / volume
-
-    private func optionsSection(compact: Bool) -> some View {
-        HStack(spacing: 4) {
-            if !compact, let level = player.servedQuality,
+    private func optionsSection(compact: Bool, diameter: CGFloat, showsQuality: Bool) -> some View {
+        HStack(spacing: compact ? 3 : 8) {
+            if showsQuality, let level = player.servedQuality,
                let quality = AudioQuality(rawValue: level) {
                 QualityTag(text: quality.badge)
-                    .padding(.trailing, 2)
-            } else if !compact, player.unblockSource != nil {
-                QualityTag(text: String(localized: "音源"))
-                    .padding(.trailing, 2)
-                    .help("来自 \(player.unblockSource ?? "")")
             }
-            PlayerIconButton(
-                icon: "quote.bubble", size: 13,
-                isActive: player.activePanel == .lyrics
-            ) {
-                player.activePanel = player.activePanel == .lyrics ? nil : .lyrics
-                showMore = false
-            }
-            .help("歌词")
-            .accessibilityLabel("歌词")
-            PlayerIconButton(
-                icon: "inset.filled.bottomthird.square", size: 13,
-                isActive: settings.showDesktopLyrics
-            ) {
+            PlayerIconButton(icon: "inset.filled.bottomthird.square", size: 16,
+                             diameter: diameter, isActive: settings.showDesktopLyrics) {
                 settings.showDesktopLyrics.toggle()
             }
             .help("桌面歌词")
             .accessibilityLabel("桌面歌词")
-            PlayerIconButton(
-                icon: "list.bullet", size: 13,
-                isActive: player.activePanel == .queue,
-                disabled: player.isFMMode
-            ) {
-                player.activePanel = player.activePanel == .queue ? nil : .queue
-                showMore = false
-            }
-            .help("播放队列")
-            .accessibilityLabel("播放队列")
-            RoutePickerButton(diameter: 26, glyphSize: 13,
-                              tint: .secondary, background: .clear)
-            VolumeControl()
+            RoutePickerButton(diameter: diameter, glyphSize: 16,
+                              tint: .primary, background: .clear)
+            VolumeControl(compact: compact)
         }
-    }
-
-    private var moreOptions: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("播放选项").font(.headline)
-            if let track = player.currentTrack {
-                HStack {
-                    Text("喜欢这首歌")
-                    Spacer()
-                    LikeButton(trackID: track.id)
-                }
-            }
-            if !player.isFMMode {
-                Button { cycleQueueOrder() } label: {
-                    Label(player.queueOrder.menuTitle, systemImage: queueOrderIcon)
-                }
-                Button { player.cycleRepeatMode() } label: {
-                    Label("循环模式", systemImage: player.repeatMode == .one ? "repeat.1" : "repeat")
-                }
-            }
-            Divider()
-            optionsSection(compact: false)
-        }
-        .buttonStyle(.plain)
-        .padding(16)
-        .frame(minWidth: 260)
     }
 }
 
-// MARK: - Icon button
-
-/// How the one queue-order control presents each state. Here rather than on
-/// the enum itself so `QueueOrder` stays a pure Core type: three transports
-/// (this bar, the now-playing page, the Dock menu) read the same two answers.
-extension QueueOrder {
-    /// `wand.and.stars` for AutoMix: it reads as "smart shuffle" next to the
-    /// plain `shuffle` arrows, and the accent tint the button applies to any
-    /// non-listed state carries the rest.
+private extension PlaybackMode {
     var symbolName: String {
         switch self {
-        case .listed, .shuffled: return "shuffle"
+        case .ordered: return "arrow.right"
+        case .shuffled: return "shuffle"
+        case .repeatOne: return "repeat.1"
         case .autoMix: return "wand.and.stars"
         }
     }
 
-    /// Tooltip / menu wording for the state the control is *in*.
-    var controlHelp: LocalizedStringKey {
-        switch self {
-        case .listed, .shuffled: return "随机播放"
-        case .autoMix: return "AutoMix 顺序"
-        }
-    }
-
-    /// The Dock menu names all three states — it is a list of them rather than
-    /// a button standing in one, so `listed` gets a word of its own.
-    var menuTitle: String {
-        switch self {
-        case .listed: return String(localized: "列表顺序")
-        case .shuffled: return String(localized: "随机播放")
-        case .autoMix: return String(localized: "AutoMix 顺序")
-        }
-    }
 }
+
+// MARK: - Icon button
 
 struct PlayerIconButton: View {
     let icon: String
     var size: CGFloat = 14
+    var diameter: CGFloat = 32
     var isActive = false
     var disabled = false
     let action: () -> Void
@@ -325,7 +179,7 @@ struct PlayerIconButton: View {
             Image(systemName: icon)
                 .font(.system(size: size, weight: .medium))
                 .foregroundStyle(isActive ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(.primary))
-                .frame(width: 26, height: 26)
+                .frame(width: diameter, height: diameter)
                 .background(
                     RoundedRectangle(cornerRadius: 7, style: .continuous)
                         .fill(backgroundColor)
@@ -333,6 +187,7 @@ struct PlayerIconButton: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.pressable)
+        .noFocusRing()
         .disabled(disabled)
         .opacity(disabled ? 0.35 : 1)
         .onHover { isHovering = $0 }
@@ -342,7 +197,6 @@ struct PlayerIconButton: View {
     private var backgroundColor: Color {
         let base: Color = colorScheme == .dark ? .white : .black
         if isHovering, !disabled { return base.opacity(0.08) }
-        if isActive { return base.opacity(0.05) }
         return .clear
     }
 }
@@ -352,18 +206,20 @@ struct PlayerIconButton: View {
 struct LikeButton: View {
     let trackID: Int
     var size: CGFloat = 13
+    var diameter: CGFloat = 32
 
     @EnvironmentObject private var account: AccountStore
 
     var body: some View {
         let liked = account.isLiked(trackID)
         PlayerIconButton(
-            icon: liked ? "heart.fill" : "heart", size: size,
+            icon: liked ? "heart.fill" : "heart", size: size, diameter: diameter,
             isActive: liked
         ) {
             Task { await account.toggleLike(trackID: trackID) }
         }
         .help(liked ? String(localized: "取消喜欢") : String(localized: "喜欢"))
+        .accessibilityLabel(liked ? "取消喜欢" : "喜欢")
     }
 }
 
@@ -385,19 +241,26 @@ struct ScrubberLane: View {
     }
 
     var body: some View {
-        HStack(spacing: 8) {
-            timeLabel(isDragging ? dragProgress : clock.progress)
-            track
-            timeLabel(player.duration)
-        }
+        track
         .frame(maxWidth: .infinity)
-    }
-
-    private func timeLabel(_ value: TimeInterval) -> some View {
-        Text(Formatters.duration(value))
-            .font(.system(size: 10).monospacedDigit())
-            .foregroundStyle(.secondary)
-            .frame(width: 34)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("播放进度")
+        .accessibilityValue("\(Formatters.duration(isDragging ? dragProgress : clock.progress)) / \(Formatters.duration(player.duration))")
+        .accessibilityAdjustableAction { direction in
+            guard player.duration > 0 else { return }
+            switch direction {
+            case .increment: player.seek(to: min(player.duration, clock.progress + 5))
+            case .decrement: player.seek(to: max(0, clock.progress - 5))
+            @unknown default: break
+            }
+        }
+        .onDisappear {
+            // Releasing the view mid-drag must also release the audio clock.
+            if isDragging {
+                isDragging = false
+                player.isScrubbing = false
+            }
+        }
     }
 
     private var track: some View {
@@ -406,28 +269,40 @@ struct ScrubberLane: View {
             ZStack(alignment: .leading) {
                 Capsule()
                     .fill(colorScheme == .dark ? Color.white.opacity(0.18) : .black.opacity(0.15))
-                    .frame(height: 3.5)
+                    .frame(height: isHovering || isDragging ? 4 : 3)
                 Capsule()
                     .fill(Theme.accent)
-                    .frame(width: max(3.5, width * fraction), height: 3.5)
+                    .frame(width: width * fraction, height: isHovering || isDragging ? 4 : 3)
                 Circle()
                     .fill(.white)
                     .frame(width: thumbDiameter, height: thumbDiameter)
                     .shadow(color: .black.opacity(0.25), radius: 1.5, y: 0.5)
-                    .offset(x: width * fraction - thumbDiameter / 2)
+                    .offset(x: max(0, min(width - thumbDiameter, width * fraction - thumbDiameter / 2)))
                     .opacity(isHovering || isDragging ? 1 : 0)
             }
             .frame(maxHeight: .infinity)
+            .overlay(alignment: .topLeading) {
+                if isHovering || isDragging {
+                    Text("\(Formatters.duration(isDragging ? dragProgress : clock.progress)) / \(Formatters.duration(player.duration))")
+                        .font(.system(size: 11).monospacedDigit())
+                        .foregroundStyle(.primary)
+                        .frame(width: 124, height: 26)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6))
+                        .offset(x: max(4, min(width - 128, width * fraction - 62)), y: -30)
+                        .allowsHitTesting(false)
+                }
+            }
             .contentShape(Rectangle())
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in
-                        guard player.duration > 0 else { return }
+                        guard player.duration > 0, width > 0 else { return }
                         isDragging = true
                         player.isScrubbing = true
                         dragProgress = min(max(value.location.x / width, 0), 1) * player.duration
                     }
                     .onEnded { _ in
+                        guard isDragging else { return }
                         player.seek(to: dragProgress)
                         isDragging = false
                         player.isScrubbing = false
@@ -446,22 +321,44 @@ struct ScrubberLane: View {
     }
 }
 
-// MARK: - Volume
+// MARK: - Inline volume
 
 struct VolumeControl: View {
+    var compact = false
     @EnvironmentObject private var player: PlayerService
-    @State private var showPopover = false
 
     var body: some View {
-        PlayerIconButton(icon: volumeIcon, size: 13) {
-            showPopover.toggle()
-        }
-        .popover(isPresented: $showPopover, arrowEdge: .top) {
-            VolumeSlider()
-                .padding(.vertical, 12)
-                .padding(.horizontal, 10)
+        HStack(spacing: compact ? 2 : 6) {
+            Image(systemName: volumeIcon)
+                .font(.system(size: compact ? 14 : 16, weight: .medium))
+                .frame(width: compact ? 16 : 20)
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(.primary.opacity(0.14))
+                    Capsule().fill(.primary.opacity(0.7))
+                        .frame(width: geo.size.width * CGFloat(player.volume))
+                }
+                .frame(height: 3)
+                .frame(maxHeight: .infinity)
+                .contentShape(Rectangle())
+                .gesture(DragGesture(minimumDistance: 0).onChanged { value in
+                    guard geo.size.width > 0 else { return }
+                    player.volume = Float(min(max(value.location.x / geo.size.width, 0), 1))
+                })
+            }
+            .frame(width: compact ? 30 : 64, height: 26)
         }
         .help("音量")
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("音量")
+        .accessibilityValue("\(Int(player.volume * 100))%")
+        .accessibilityAdjustableAction { direction in
+            switch direction {
+            case .increment: player.volume = min(1, player.volume + 0.05)
+            case .decrement: player.volume = max(0, player.volume - 0.05)
+            @unknown default: break
+            }
+        }
     }
 
     private var volumeIcon: String {
@@ -471,33 +368,5 @@ struct VolumeControl: View {
         case ..<0.75: return "speaker.wave.2"
         default: return "speaker.wave.3"
         }
-    }
-}
-
-struct VolumeSlider: View {
-    @EnvironmentObject private var player: PlayerService
-    @Environment(\.colorScheme) private var colorScheme
-
-    var body: some View {
-        GeometryReader { geo in
-            let height = geo.size.height
-            ZStack(alignment: .bottom) {
-                Capsule()
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.18) : .black.opacity(0.15))
-                    .frame(width: 4)
-                Capsule()
-                    .fill(Theme.accent)
-                    .frame(width: 4, height: max(4, height * CGFloat(player.volume)))
-            }
-            .frame(maxWidth: .infinity)
-            .contentShape(Rectangle())
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { value in
-                        player.volume = Float(min(max(1 - value.location.y / height, 0), 1))
-                    }
-            )
-        }
-        .frame(width: 22, height: 110)
     }
 }

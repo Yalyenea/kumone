@@ -5,14 +5,6 @@ import Foundation
 
 enum RepeatMode: String, CaseIterable {
     case off, all, one
-
-    var next: RepeatMode {
-        switch self {
-        case .off: return .all
-        case .all: return .one
-        case .one: return .off
-        }
-    }
 }
 
 /// Where the current queue came from — used for scrobbling and UI affordances.
@@ -135,7 +127,6 @@ final class PlayerService: ObservableObject {
     @Published private(set) var isBuffering = false
     @Published private(set) var duration: TimeInterval = 0
     @Published private(set) var servedQuality: String?
-    @Published private(set) var unblockSource: String?
     @Published private(set) var isTrial = false
     let clock = PlaybackClock()
     let lyricsCursor = LyricsCursor()
@@ -233,7 +224,6 @@ final class PlayerService: ObservableObject {
         let key: EngineAudioCache.Key
         let localURL: URL
         let level: String?
-        let unblockSource: String?
         var analysis: TrackAnalysis?
     }
 
@@ -402,6 +392,9 @@ final class PlayerService: ObservableObject {
             self?.networkState = network
         }
         restoreState()
+        // A saved list-repeat selection becomes ordinary ordered playback.
+        // Shuffle retains queue wrapping as part of its single mode.
+        repeatMode = playbackMode.repeatMode
         let settings = SettingsManager.shared
         queueOrderSettingsObservation = settings.$automixEnabled
             .combineLatest(settings.$automixOrderEnabled)
@@ -605,8 +598,8 @@ final class PlayerService: ObservableObject {
     /// shuffle button walks `listed → shuffled → autoMix → listed`, skipping
     /// the third state wherever it could do nothing.
     func cycleQueueOrder() {
-        setQueueOrder(Self.nextQueueOrder(after: queueOrder,
-                                          autoMixAvailable: autoMixOrderAvailable))
+        let order = Self.nextQueueOrder(after: queueOrder, autoMixAvailable: autoMixOrderAvailable)
+        setPlaybackMode(PlaybackMode(queueOrder: order, repeatMode: .off))
     }
 
     /// The cycle as a pure function — one place the order of the states is
@@ -656,12 +649,25 @@ final class PlayerService: ObservableObject {
         schedulePrefetch()
     }
 
-    func cycleRepeatMode() {
-        guard !isFMMode else { return }
-        repeatMode = repeatMode.next
-        // Repeat-one forbids auto hand-overs; the other modes change what
-        // comes after the final queue entry.
-        schedulePrefetch()
+    var playbackMode: PlaybackMode {
+        PlaybackMode(queueOrder: queueOrder, repeatMode: repeatMode)
+    }
+
+    func cyclePlaybackMode() {
+        setPlaybackMode(playbackMode.next(autoMixAvailable: autoMixOrderAvailable))
+    }
+
+    func setPlaybackMode(_ next: PlaybackMode) {
+        guard !isFMMode, next != .autoMix || autoMixOrderAvailable else { return }
+        repeatMode = next.repeatMode
+        if queueOrder != next.queueOrder {
+            // This also persists and refreshes prefetch using the new repeat
+            // policy, after rebuilding the queue around the current track.
+            setQueueOrder(next.queueOrder)
+        } else {
+            persistState()
+            schedulePrefetch()
+        }
     }
 
     /// Jump to a track in the upcoming list (queue panel click).
@@ -961,7 +967,6 @@ final class PlayerService: ObservableObject {
         progress = resumeAt
         duration = track.duration
         servedQuality = nil
-        unblockSource = nil
         isTrial = false
         lyrics = nil
         currentLyricLRC = nil
@@ -991,50 +996,29 @@ final class PlayerService: ObservableObject {
         let url: URL
         let key: EngineAudioCache.Key
         let level: String?
-        let unblockSource: String?
         let isTrial: Bool
         let durationMS: Int?
     }
 
-    /// The full URL-resolution chain (quality fallback → https upgrade →
-    /// unblock rescue) plus cache-key derivation — shared by playback and
-    /// prefetch so both always derive identical keys. Pure: no toasts, no
-    /// state changes.
+    /// The full URL-resolution chain (quality fallback → https upgrade) plus
+    /// cache-key derivation — shared by playback and prefetch so both always
+    /// derive identical keys. Pure: no toasts, no state changes.
     private func resolveSource(for track: Track) async -> ResolvedSource? {
         let quality = SettingsManager.shared.audioQuality.rawValue
         var data = try? await NeteaseAPI.songURL(ids: [track.id], level: quality).first
         if data?.url == nil, quality != AudioQuality.standard.rawValue {
             data = try? await NeteaseAPI.songURL(ids: [track.id], level: AudioQuality.standard.rawValue).first
         }
-        var url: URL?
-        var unblock: String?
-        if let urlString = data?.url {
-            url = URL(string: urlString.replacingOccurrences(of: "http://", with: "https://"))
-        }
-        // NetEase refused — try third-party sources (UnblockNeteaseMusic-style).
-        // #104 made the source list configurable; resolve through the enabled
-        // sources (single-shot here, so nothing is excluded).
-        if url == nil || data?.freeTrialInfo != nil, SettingsManager.shared.enableUnblock {
-            let resolution = await UnblockService.resolve(
-                track,
-                enabledSources: SettingsManager.shared.enabledAudioSourceIDs,
-                excluding: []
-            )
-            if let unblocked = resolution.source {
-                url = unblocked.url
-                unblock = unblocked.displayName
-                data = nil
-            }
-        }
-        guard let url else { return nil }
+        guard let urlString = data?.url,
+              let url = URL(string: urlString.replacingOccurrences(of: "http://", with: "https://"))
+        else { return nil }
         let ext = url.pathExtension.isEmpty ? "mp3" : url.pathExtension.lowercased()
         return ResolvedSource(
             url: url,
             key: EngineAudioCache.Key(trackID: track.id, level: data?.level ?? quality,
-                                source: unblock.map { "unblock:\($0)" } ?? "netease",
+                                source: "netease",
                                 fileExtension: ext),
             level: data?.level,
-            unblockSource: unblock,
             isTrial: data?.freeTrialInfo != nil,
             durationMS: data?.time)
     }
@@ -1086,13 +1070,8 @@ final class PlayerService: ObservableObject {
         PlaybackJournal.note(
             "now playing id=\(track.id) level=\(resolved.level ?? "?") "
             + "wanted=\(SettingsManager.shared.audioQuality.rawValue) "
-            + (resolved.unblockSource.map { "unblock=\($0) " } ?? "")
             + (resolved.isTrial ? "trial " : ""))
         scheduleAudioUnitReadback()
-        unblockSource = resolved.unblockSource
-        if let source = resolved.unblockSource {
-            ToastCenter.shared.show(String(localized: "已使用第三方音源：\(source)"))
-        }
         if resolved.isTrial {
             isTrial = true
             ToastCenter.shared.show(String(localized: "VIP 歌曲，当前为试听片段"))
@@ -1388,7 +1367,7 @@ final class PlayerService: ObservableObject {
             AutoMixDebugModel.shared.setNextAnalysis(analysis, localURL: local)
             self.prefetchedNext = PrefetchedNext(
                 track: target, key: resolved.key, localURL: local,
-                level: resolved.level, unblockSource: resolved.unblockSource, analysis: analysis)
+                level: resolved.level, analysis: analysis)
             self.armTransitionIfReady()
         }
     }
@@ -2102,7 +2081,6 @@ final class PlayerService: ObservableObject {
             "now playing id=\(next.id) level=\(prefetchedNext?.level ?? "?") "
             + "wanted=\(SettingsManager.shared.audioQuality.rawValue) via=handover")
         scheduleAudioUnitReadback()
-        unblockSource = prefetchedNext?.unblockSource
         isTrial = false
         isPlaying = true
         progress = engine.position(of: deck)
@@ -3245,7 +3223,9 @@ final class PlayerService: ObservableObject {
         playbackAccountID = session.accountID
         playNextList = session.playNext
         source = session.source
-        if let mode = RepeatMode(rawValue: session.repeatMode) { repeatMode = mode }
+        if let mode = RepeatMode(rawValue: session.repeatMode) {
+            repeatMode = PlaybackMode(queueOrder: queueOrder, repeatMode: mode).repeatMode
+        }
         isFMMode = session.isFM
         fmUpcoming = []
         progress = session.progress

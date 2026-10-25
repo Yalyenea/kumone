@@ -75,6 +75,7 @@ struct RecentsView: View {
         return TrackRow(
             track: record.song,
             index: index + 1,
+            totalCount: records.count,
             style: .compact,
             trailingText: String(localized: "\(record.playCount) 次")
         ) {

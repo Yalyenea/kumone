@@ -22,9 +22,6 @@ BUILD_NUMBER="1"
 BUILD_DIR="$ROOT/.build/app"
 APP_BUNDLE="$BUILD_DIR/$APP_NAME.app"
 
-# ARCHES="arm64 x86_64" builds a universal binary; default is the host architecture.
-# Build each architecture separately and join the slices with lipo.
-
 # Extra SwiftPM flags supplied explicitly by the caller.
 EXTRA_FLAGS=()
 for flag in ${SWIFT_BUILD_FLAGS:-}; do
@@ -42,39 +39,17 @@ if [ -n "$SDK_VERSION" ]; then
   EXTRA_FLAGS+=(-Xlinker -platform_version -Xlinker macos -Xlinker 15.0 -Xlinker "$SDK_VERSION")
 fi
 
-# ${arr[@]+...} keeps macOS's bash 3.2 happy under set -u with empty arrays
-build_slice() { # [triple] — prints nothing; sets SLICE_BIN_PATH
-  local triple_flags=()
-  [ -n "${1:-}" ] && triple_flags=(--triple "$1")
-  swift build -c "$CONF" ${EXTRA_FLAGS[@]+"${EXTRA_FLAGS[@]}"} \
-    ${triple_flags[@]+"${triple_flags[@]}"} --product "$APP_NAME"
-  SLICE_BIN_PATH="$(swift build -c "$CONF" ${EXTRA_FLAGS[@]+"${EXTRA_FLAGS[@]}"} \
-    ${triple_flags[@]+"${triple_flags[@]}"} --show-bin-path)"
-}
-
-SLICE_BINARIES=()
-if [ -n "${ARCHES:-}" ]; then
-  for arch in $ARCHES; do
-    build_slice "$arch-apple-macosx"
-    SLICE_BINARIES+=("$SLICE_BIN_PATH/$APP_NAME")
-    # Resources below use the first slice's tree;
-    # every slice carries the same resources.
-    BIN_PATH="${BIN_PATH:-$SLICE_BIN_PATH}"
-  done
-else
-  build_slice ""
-  BIN_PATH="$SLICE_BIN_PATH"
-  SLICE_BINARIES+=("$BIN_PATH/$APP_NAME")
-fi
+# Ship one Apple Silicon binary. Explicit targeting also keeps builds from
+# acquiring an Intel slice when invoked on a different host.
+swift build -c "$CONF" ${EXTRA_FLAGS[@]+"${EXTRA_FLAGS[@]}"} \
+  --triple arm64-apple-macosx --product "$APP_NAME"
+BIN_PATH="$(swift build -c "$CONF" ${EXTRA_FLAGS[@]+"${EXTRA_FLAGS[@]}"} \
+  --triple arm64-apple-macosx --show-bin-path)"
 
 rm -rf "$BUILD_DIR"
 mkdir -p "$APP_BUNDLE/Contents/MacOS" "$APP_BUNDLE/Contents/Resources"
 
-if [ "${#SLICE_BINARIES[@]}" -gt 1 ]; then
-  lipo -create "${SLICE_BINARIES[@]}" -output "$APP_BUNDLE/Contents/MacOS/$APP_NAME"
-else
-  cp "${SLICE_BINARIES[0]}" "$APP_BUNDLE/Contents/MacOS/$APP_NAME"
-fi
+cp "$BIN_PATH/$APP_NAME" "$APP_BUNDLE/Contents/MacOS/$APP_NAME"
 chmod +x "$APP_BUNDLE/Contents/MacOS/$APP_NAME"
 
 # Keep crash-symbolication data outside the shipped app, then remove debug
@@ -162,10 +137,6 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
 </dict>
 </plist>
 PLIST
-
-if [ -n "${ARCHES:-}" ]; then
-  echo "Binary architectures: $(lipo -archs "$APP_BUNDLE/Contents/MacOS/$APP_NAME")"
-fi
 
 xattr -cr "$APP_BUNDLE" 2>/dev/null || true
 codesign --force --sign - "$APP_BUNDLE" >/dev/null

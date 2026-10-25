@@ -1,8 +1,7 @@
 import QuartzCore
 import SwiftUI
 
-/// Complete interactive turntable stage combining rotating vinyl disc, tonearm,
-/// continuous timeline rotation, tap-to-flip, and horizontal swipe-to-switch tracks.
+/// Classic floating record with a fixed light source and a slim lifting arm.
 public struct VinylTurntableView: View {
     public let artworkImage: PlatformImage?
     public let isPlaying: Bool
@@ -37,20 +36,30 @@ public struct VinylTurntableView: View {
 
     public var body: some View {
         let discSize = size
-        let armHeight = discSize * 0.68
-        let stageWidth = discSize + 48
-        let stageHeight = discSize + armHeight * 0.38
+        let armHeight = discSize * 0.56
+        let stageWidth = discSize * 1.16
+        let stageHeight = discSize * 1.24 + 6
 
         return ZStack(alignment: .top) {
-            // MARK: 1. Rotating Vinyl Disc (with horizontal drag & slide transitions)
+            // The platter and light remain stationary, like a record under
+            // a room light. Only the grooves and paper label rotate.
+            Circle()
+                .fill(.black.opacity(0.18))
+                .overlay { Circle().strokeBorder(.white.opacity(0.08), lineWidth: 1) }
+                .frame(width: discSize + 12, height: discSize + 12)
+                .shadow(color: .black.opacity(0.32), radius: discSize * 0.06, y: discSize * 0.035)
+                .offset(x: dragOffset)
+                .padding(.top, discSize * 0.22 - 3)
+
             SpinningVinylDisc(
                 artworkImage: artworkImage,
                 discSize: discSize,
                 spinning: isPlaying && !isDragging && !isTransitioningTrack
                     && windowVisibility.isVisible
             )
+            .overlay { recordReflection(size: discSize) }
             .offset(x: dragOffset)
-            .padding(.top, armHeight * 0.36)
+            .padding(.top, discSize * 0.22)
             .contentShape(Circle())
             .gesture(dragAndSwipeGesture(discSize: discSize))
             .onTapGesture {
@@ -58,12 +67,11 @@ public struct VinylTurntableView: View {
             }
             .zIndex(1)
 
-            // MARK: 2. Tonearm (Placed at the top-center above the disc, reaching down)
             VinylTonearmView(
                 isPlaying: isPlaying && !isDragging && !isTransitioningTrack,
                 height: armHeight
             )
-            .offset(x: discSize * 0.12, y: -armHeight * 0.08)
+            .offset(x: discSize * 0.03)
             .allowsHitTesting(false)
             .zIndex(2)
         }
@@ -76,6 +84,27 @@ public struct VinylTurntableView: View {
                 isTransitioningTrack = false
             }
         }
+    }
+
+    private func recordReflection(size: CGFloat) -> some View {
+        Circle()
+            .fill(AngularGradient(
+                stops: [
+                    .init(color: .clear, location: 0),
+                    .init(color: .white.opacity(0.10), location: 0.12),
+                    .init(color: .clear, location: 0.24),
+                    .init(color: .clear, location: 0.50),
+                    .init(color: .white.opacity(0.07), location: 0.62),
+                    .init(color: .clear, location: 0.76),
+                    .init(color: .clear, location: 1)
+                ], center: .center, angle: .degrees(-40)
+            ))
+            .frame(width: size, height: size)
+            .mask {
+                Circle().strokeBorder(lineWidth: size * 0.19)
+                    .frame(width: size, height: size)
+            }
+            .allowsHitTesting(false)
     }
 
     // MARK: - Gestures

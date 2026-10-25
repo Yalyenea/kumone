@@ -72,11 +72,13 @@ struct LoginSheet: View {
                 dismiss()
             }
             .buttonStyle(.plain)
+            .noFocusRing()
             .font(.system(size: 12.5))
             .foregroundStyle(.secondary)
             .padding(.bottom, 20)
         }
         .frame(width: 320)
+        .noFocusRing()
         .overlay(alignment: .top) {
             if let toast = toasts.current { ToastView(toast: toast).padding(.top, 8) }
         }

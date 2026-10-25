@@ -4,7 +4,7 @@ import AppKit
 ///
 /// AppKit asks for this menu each time it is opened, so it is rebuilt from
 /// the player's current state rather than kept in sync. Layout follows what
-/// Spotify and Music put there: transport controls, shuffle / repeat state,
+/// Spotify and Music put there: transport controls, playback mode,
 /// and recently played tracks.
 @MainActor
 final class DockMenu: NSObject, NSMenuDelegate {
@@ -30,37 +30,19 @@ final class DockMenu: NSObject, NSMenuDelegate {
             action: #selector(previous), enabled: player.hasCurrentTrack)
         menu.addItem(.separator())
 
-        // The queue order is one three-way choice, so it reads as a submenu
-        // for the same reason the repeat mode below does. The third entry
-        // appears only where it could do something; without it this is the
-        // two-state shuffle the menu always had, with its state spelled out.
-        let orderItem = NSMenuItem(title: String(localized: "播放顺序"),
-                                   action: nil, keyEquivalent: "")
-        let orderMenu = NSMenu()
-        orderMenu.autoenablesItems = false
-        for order in QueueOrder.allCases
-        where order != .autoMix || player.autoMixOrderAvailable {
-            let item = add(to: orderMenu, title: order.menuTitle,
-                           action: #selector(setQueueOrder(_:)), enabled: true)
-            item.representedObject = order.rawValue
-            item.state = player.queueOrder == order ? .on : .off
-        }
-        orderItem.submenu = orderMenu
-        menu.addItem(orderItem)
-
-        // Three-way repeat reads better as a submenu than as one checkmark.
-        let repeatItem = NSMenuItem(title: String(localized: "循环模式"),
-                                    action: nil, keyEquivalent: "")
-        let repeatMenu = NSMenu()
-        repeatMenu.autoenablesItems = false
-        for mode in RepeatMode.allCases {
-            let item = add(to: repeatMenu, title: mode.menuTitle,
-                           action: #selector(setRepeatMode(_:)), enabled: true)
+        let modeItem = NSMenuItem(title: String(localized: "播放模式"),
+                                  action: nil, keyEquivalent: "")
+        let modeMenu = NSMenu()
+        modeMenu.autoenablesItems = false
+        for mode in PlaybackMode.allCases
+        where mode != .autoMix || player.autoMixOrderAvailable {
+            let item = add(to: modeMenu, title: mode.displayName,
+                           action: #selector(setPlaybackMode(_:)), enabled: !player.isFMMode)
             item.representedObject = mode.rawValue
-            item.state = player.repeatMode == mode ? .on : .off
+            item.state = player.playbackMode == mode ? .on : .off
         }
-        repeatItem.submenu = repeatMenu
-        menu.addItem(repeatItem)
+        modeItem.submenu = modeMenu
+        menu.addItem(modeItem)
 
         if !player.recentContexts.isEmpty {
             menu.addItem(.separator())
@@ -94,30 +76,14 @@ final class DockMenu: NSObject, NSMenuDelegate {
     @objc private func togglePlayPause() { player.togglePlayPause() }
     @objc private func next() { player.next() }
     @objc private func previous() { player.previous() }
-    @objc private func setQueueOrder(_ sender: NSMenuItem) {
+    @objc private func setPlaybackMode(_ sender: NSMenuItem) {
         guard let raw = sender.representedObject as? String,
-              let order = QueueOrder(rawValue: raw) else { return }
-        player.setQueueOrder(order)
-    }
-
-    @objc private func setRepeatMode(_ sender: NSMenuItem) {
-        guard let raw = sender.representedObject as? String,
-              let mode = RepeatMode(rawValue: raw) else { return }
-        player.repeatMode = mode
+              let mode = PlaybackMode(rawValue: raw) else { return }
+        player.setPlaybackMode(mode)
     }
 
     @objc private func playRecent(_ sender: NSMenuItem) {
         guard let context = sender.representedObject as? PlayContext else { return }
         player.play(context: context)
-    }
-}
-
-private extension RepeatMode {
-    var menuTitle: String {
-        switch self {
-        case .off: return String(localized: "不循环")
-        case .all: return String(localized: "列表循环")
-        case .one: return String(localized: "单曲循环")
-        }
     }
 }

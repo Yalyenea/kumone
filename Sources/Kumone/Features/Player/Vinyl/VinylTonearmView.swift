@@ -1,9 +1,8 @@
 import QuartzCore
 import SwiftUI
 
-/// Vector mechanical tonearm (唱臂与唱针) matching vintage / NetEase turntable styling.
-/// Features metallic pivot base, curved tonearm tube, counterweight, headshell, cartridge, stylus tip,
-/// and smooth engaging/disengaging rotation animation.
+/// A small ivory pivot and bent aluminium arm, with the needle resting on
+/// the record's outer grooves instead of obscuring the paper label.
 public struct VinylTonearmView: View {
     public let isPlaying: Bool
     public let height: CGFloat
@@ -17,16 +16,12 @@ public struct VinylTonearmView: View {
     }
 
     public var body: some View {
-        // Base width proportional to height
         let width = height * 0.58
-        let pivotSize = width * 0.46
+        let pivotSize = width * 0.24
 
         ZStack(alignment: .top) {
-            // 1. Static Pivot Base (固定底座)
             pivotBase(size: pivotSize)
                 .zIndex(3)
-
-            // 2. Rotating Arm Assembly (可旋转的臂杆总成)
             EngagingTonearm(
                 arm: armAssembly(width: width, height: height),
                 engaged: isPlaying,
@@ -36,224 +31,90 @@ public struct VinylTonearmView: View {
                 height: height,
                 pivotY: pivotSize * 0.5
             )
-            .shadow(color: .black.opacity(0.4), radius: 6, x: -3, y: 5)
+            .shadow(color: .black.opacity(0.3), radius: 3, x: 2, y: 4)
             .zIndex(2)
         }
         .frame(width: width, height: height, alignment: .top)
     }
 
-    /// The arm's idle wobble, sampled by the layer animation the arm now runs
-    /// on. `seconds` is an offset into the wobble's own timeline: the two
-    /// sines meet again after 35.2 s (3.2 s × 11 == 1.1 s × 32), which is what
-    /// makes the looping layer animation seamless.
     static func wobbleDegrees(at seconds: Double) -> Double {
         let harmonic1 = sin(seconds * 2.0 * .pi / 3.2) * 0.20
         let harmonic2 = sin(seconds * 2.0 * .pi / 1.1 + 0.6) * 0.08
         return harmonic1 + harmonic2
     }
 
-    // MARK: - Pivot Base View
-
     private func pivotBase(size: CGFloat) -> some View {
         ZStack {
-            // Outer drop shadow
             Circle()
-                .fill(Color.black.opacity(0.5))
-                .frame(width: size * 1.1, height: size * 1.1)
-                .blur(radius: 3)
-                .offset(y: 2)
-
-            // Outer metallic rim (拉丝金属外环)
+                .fill(.black.opacity(0.18))
+                .frame(width: size * 1.35, height: size * 1.35)
             Circle()
-                .fill(
-                    LinearGradient(
-                        colors: [Color(white: 0.82), Color(white: 0.35), Color(white: 0.75)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-                .frame(width: size, height: size)
-                .overlay {
-                    Circle()
-                        .stroke(Color.white.opacity(0.5), lineWidth: 0.8)
-                }
-
-            // Dark inner disc (暗色内圈台架)
+                .fill(LinearGradient(colors: [Color(white: 0.98), Color(white: 0.72)],
+                                     startPoint: .topLeading, endPoint: .bottomTrailing))
+                .overlay { Circle().strokeBorder(.white.opacity(0.7), lineWidth: 0.7) }
             Circle()
-                .fill(
-                    RadialGradient(
-                        colors: [Color(white: 0.24), Color(white: 0.08)],
-                        center: .center,
-                        startRadius: 0,
-                        endRadius: size * 0.42
-                    )
-                )
-                .frame(width: size * 0.80, height: size * 0.80)
-
-            // Inner pivot chrome cap (中心高光轴承盖)
-            Circle()
-                .fill(
-                    LinearGradient(
-                        colors: [Color(white: 0.95), Color(white: 0.55), Color(white: 0.85)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-                .frame(width: size * 0.40, height: size * 0.40)
-                .shadow(color: .black.opacity(0.4), radius: 1, y: 1)
-
-            // Center bearing screw (中心紧固螺栓)
-            Circle()
-                .fill(Color(white: 0.12))
-                .frame(width: size * 0.14, height: size * 0.14)
+                .fill(Color(white: 0.8))
+                .frame(width: size * 0.37, height: size * 0.37)
+                .overlay { Circle().strokeBorder(.black.opacity(0.08), lineWidth: 0.5) }
         }
         .frame(width: size, height: size)
+        .shadow(color: .black.opacity(0.18), radius: 3, y: 2)
     }
-
-    // MARK: - Rotating Arm Assembly
 
     private func armAssembly(width: CGFloat, height: CGFloat) -> some View {
-        let pivotY = (width * 0.46) * 0.5
-        let tubeWidth: CGFloat = max(3.5, width * 0.058)
-
+        let tubeWidth = max(2, width * 0.045)
         return ZStack(alignment: .top) {
-            // Counterweight behind the pivot (后置金属配重坨)
-            Capsule()
-                .fill(
-                    LinearGradient(
-                        colors: [Color(white: 0.75), Color(white: 0.25), Color(white: 0.65)],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-                )
-                .frame(width: tubeWidth * 2.6, height: height * 0.15)
-                .offset(y: -height * 0.08)
-
-            // Shadow behind the entire arm
             TonearmPath()
-                .stroke(Color.black.opacity(0.35), lineWidth: tubeWidth * 1.5)
-                .blur(radius: 2.5)
-                .offset(x: 2, y: 3)
-
-            // Curved Metallic Tonearm Tube (S型高光金属臂杆)
+                .stroke(Color(white: 0.45),
+                        style: StrokeStyle(lineWidth: tubeWidth + 1, lineCap: .round, lineJoin: .round))
             TonearmPath()
-                .stroke(
-                    LinearGradient(
-                        colors: [
-                            Color(white: 0.98),
-                            Color(white: 0.55),
-                            Color(white: 0.92),
-                            Color(white: 0.40)
-                        ],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    ),
-                    style: StrokeStyle(lineWidth: tubeWidth, lineCap: .round, lineJoin: .round)
-                )
-
-            // Headshell & Cartridge at the bottom-left of the arm curve (唱头架与唱针)
-            headshellAndCartridge(width: width, height: height)
+                .stroke(LinearGradient(colors: [Color(white: 0.98), Color(white: 0.76), Color(white: 0.94)],
+                                       startPoint: .leading, endPoint: .trailing),
+                        style: StrokeStyle(lineWidth: tubeWidth, lineCap: .round, lineJoin: .round))
+            headshell(width: width, height: height)
         }
         .frame(width: width, height: height)
-        .offset(y: pivotY)
+        // Both the shape and the layer share this pivot; changing the size
+        // must not shift the hinge during the play/pause swing.
+        .offset(y: width * 0.24 * 0.5)
     }
 
-    private func headshellAndCartridge(width: CGFloat, height: CGFloat) -> some View {
-        let headWidth = width * 0.24
-        let headHeight = height * 0.22
-
+    private func headshell(width: CGFloat, height: CGFloat) -> some View {
+        let headWidth = width * 0.115
+        let headHeight = height * 0.15
         return ZStack {
-            // Headshell plate (angular cover)
-            RoundedRectangle(cornerRadius: 2.5)
-                .fill(
-                    LinearGradient(
-                        colors: [Color(white: 0.32), Color(white: 0.10)],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                )
-                .frame(width: headWidth, height: headHeight)
+            RoundedRectangle(cornerRadius: headWidth * 0.15)
+                .fill(LinearGradient(colors: [Color(white: 0.98), Color(white: 0.72), Color(white: 0.9)],
+                                     startPoint: .leading, endPoint: .trailing))
                 .overlay {
-                    RoundedRectangle(cornerRadius: 2.5)
-                        .stroke(Color.white.opacity(0.35), lineWidth: 0.8)
+                    RoundedRectangle(cornerRadius: headWidth * 0.15)
+                        .strokeBorder(.white.opacity(0.7), lineWidth: 0.6)
                 }
-
-            // Finger lift handle on headshell side (唱头提手把柄)
+            Rectangle()
+                .fill(Color(white: 0.4))
+                .frame(width: headWidth * 0.65, height: max(1, height * 0.008))
+                .offset(y: headHeight * 0.35)
             Capsule()
-                .fill(
-                    LinearGradient(
-                        colors: [Color(white: 0.85), Color(white: 0.4)],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                )
-                .frame(width: 2.5, height: headHeight * 0.45)
-                .offset(x: headWidth * 0.52, y: -headHeight * 0.1)
-
-            // Cartridge body & Stylus needle indicator (红白经典唱头与银色探针)
-            VStack(spacing: 0) {
-                Spacer()
-                // Red cartridge band
-                RoundedRectangle(cornerRadius: 1)
-                    .fill(
-                        LinearGradient(
-                            colors: [Color(red: 0.92, green: 0.22, blue: 0.22), Color(red: 0.55, green: 0.08, blue: 0.08)],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-                    .frame(width: headWidth * 0.65, height: 4.5)
-
-                // Silver stylus needle point (探针针尖)
-                Triangle()
-                    .fill(Color(white: 0.95))
-                    .frame(width: 3, height: 3.5)
-                    .offset(y: 1)
-            }
+                .fill(.white.opacity(0.9))
+                .frame(width: max(1, headWidth * 0.12), height: headHeight * 0.65)
+                .offset(x: headWidth * 0.7, y: -headHeight * 0.22)
         }
         .frame(width: headWidth, height: headHeight)
-        .rotationEffect(.degrees(24))
-        .position(x: width * 0.31, y: height * 0.74)
+        .rotationEffect(.degrees(-39))
+        .position(x: width * 0.90, y: height * 0.70)
     }
 }
-
-// MARK: - Tonearm S-Curve Path
 
 private struct TonearmPath: Shape {
     func path(in rect: CGRect) -> Path {
         var path = Path()
-        let startPoint = CGPoint(x: rect.width * 0.5, y: 0)
-        let midPoint1 = CGPoint(x: rect.width * 0.58, y: rect.height * 0.28)
-        let midPoint2 = CGPoint(x: rect.width * 0.42, y: rect.height * 0.55)
-        let endPoint = CGPoint(x: rect.width * 0.31, y: rect.height * 0.74)
-
-        path.move(to: startPoint)
-        path.addCurve(
-            to: midPoint1,
-            control1: CGPoint(x: rect.width * 0.52, y: rect.height * 0.1),
-            control2: CGPoint(x: rect.width * 0.58, y: rect.height * 0.2)
+        path.move(to: CGPoint(x: rect.width * 0.5, y: 0))
+        path.addLine(to: CGPoint(x: rect.width * 0.52, y: rect.height * 0.30))
+        path.addQuadCurve(
+            to: CGPoint(x: rect.width * 0.61, y: rect.height * 0.46),
+            control: CGPoint(x: rect.width * 0.53, y: rect.height * 0.40)
         )
-        path.addCurve(
-            to: midPoint2,
-            control1: CGPoint(x: rect.width * 0.58, y: rect.height * 0.38),
-            control2: CGPoint(x: rect.width * 0.45, y: rect.height * 0.48)
-        )
-        path.addCurve(
-            to: endPoint,
-            control1: CGPoint(x: rect.width * 0.38, y: rect.height * 0.62),
-            control2: CGPoint(x: rect.width * 0.33, y: rect.height * 0.70)
-        )
-        return path
-    }
-}
-
-private struct Triangle: Shape {
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        path.move(to: CGPoint(x: rect.midX, y: rect.maxY))
-        path.addLine(to: CGPoint(x: rect.minX, y: rect.minY))
-        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
-        path.closeSubpath()
+        path.addLine(to: CGPoint(x: rect.width * 0.90, y: rect.height * 0.70))
         return path
     }
 }

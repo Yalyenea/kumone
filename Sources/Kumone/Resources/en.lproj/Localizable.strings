@@ -10,11 +10,11 @@
 "我喜欢的音乐" = "Liked Songs";
 "每日推荐" = "Daily Recs";
 "日推" = "Daily";
-"最近播放" = "Recently Played";
+"最近播放" = "Recent";
 "我的收藏" = "Collections";
-"音乐云盘" = "Cloud Disk";
+"音乐云盘" = "Cloud";
 "创建的歌单" = "Created Playlists";
-"收藏的歌单" = "Saved Playlists";
+"收藏的歌单" = "Saved";
 "还没有收藏歌单" = "No saved playlists yet";
 "登录后查看你收藏的歌单" = "Sign in to see your saved playlists";
 "固定到顶栏" = "Pin to top bar";
@@ -41,8 +41,6 @@
 "播放队列" = "Queue";
 "打开播放页" = "Open Now Playing";
 "私人漫游中" = "Personal FM";
-"音源" = "Audio Sources";
-"来自 %@" = "From %@";
 "音量" = "Volume";
 "未在播放" = "Not Playing";
 "正在播放" = "Now Playing";
@@ -219,8 +217,6 @@
 "无损" = "Lossless";
 "高解析" = "Hi-Res";
 "无损与 Hi-Res 需要黑胶 VIP，未开通时自动回落到可用音质" = "Lossless and Hi-Res require VIP; falls back automatically otherwise";
-"灰色歌曲解锁" = "Unblock Gray Tracks";
-"无版权或下架歌曲将从已启用音源中匹配播放" = "Unavailable tracks are matched from enabled sources";
 "外观" = "Appearance";
 "主题" = "Theme";
 "跟随系统" = "System";
@@ -266,11 +262,8 @@
 "已添加到下一首播放" = "Added to play next";
 "获取私人漫游数据失败" = "Failed to load Personal FM";
 "已经是最后一首了" = "Already the last song";
-"已使用第三方音源：%@" = "Playing from third-party source: %@";
 "《%@》无法播放%@" = "“%@” can’t be played%@";
 "VIP 歌曲，当前为试听片段" = "VIP song — playing a trial clip";
-"酷我音乐" = "Kuwo Music";
-"酷狗音乐" = "Kugou Music";
 
 /* Track playability */
 "VIP 专属" = "VIP Only";
@@ -510,9 +503,6 @@
 "设置分类" = "Settings category";
 "播放音质" = "Playback quality";
 "无损与 Hi-Res 需要黑胶 VIP。未开通时使用可用音质。" = "Lossless and Hi-Res require VIP. Otherwise, available quality is used.";
-"歌曲解锁" = "Track unlocking";
-"从已启用音源中匹配无版权或下架歌曲。" = "Find unavailable tracks from enabled audio sources.";
-"可用音源" = "Audio sources";
 "界面" = "Interface";
 "背景" = "Background";
 "背景色强度" = "Background intensity";
@@ -531,3 +521,5 @@
 "经典模式" = "Album artwork";
 "播放页模式" = "Now Playing layout";
 "版本" = "Version";
+"播放进度" = "Playback position";
+"播放模式" = "Playback mode";

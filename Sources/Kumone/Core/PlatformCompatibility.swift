@@ -57,12 +57,47 @@ public enum Platform {
 
 
 extension View {
-    /// Suppress the system focus ring on a decorative button (e.g. the album
-    /// artwork that opens the now-playing page / album). macOS 27 draws the
-    /// blue focus ring on these far more eagerly, which read as a stray border
-    /// on the artwork (#97). No-op on OS versions without the modifier.
+    /// Suppress the system focus ring on interactive controls and containers.
     @ViewBuilder
     func noFocusRing() -> some View {
         focusEffectDisabled()
+    }
+}
+
+extension NSView {
+    /// Suppresses AppKit's default exterior focus ring on non-text controls.
+    func disableFocusRingsRecursively() {
+        if !(self is NSTextField), !(self is NSTextView) {
+            if focusRingType != .none {
+                focusRingType = .none
+            }
+            if let cell = (self as? NSControl)?.cell, cell.focusRingType != .none {
+                cell.focusRingType = .none
+            }
+        }
+        for subview in subviews {
+            subview.disableFocusRingsRecursively()
+        }
+    }
+}
+
+extension NSWindow {
+    /// Prevents AppKit from auto-focusing the first control on window open or
+    /// page transition while preserving active text fields and shortcut recording.
+    @MainActor
+    func clearAutoFocusIfNeeded() {
+        autorecalculatesKeyViewLoop = false
+        initialFirstResponder = nil
+        contentView?.disableFocusRingsRecursively()
+        for accessory in titlebarAccessoryViewControllers {
+            accessory.view.disableFocusRingsRecursively()
+        }
+        if let responder = firstResponder,
+           responder !== self,
+           !(responder is NSText),
+           !(responder is NSTextView),
+           !(responder is ShortcutRecorderView.RecorderNSView) {
+            makeFirstResponder(nil)
+        }
     }
 }

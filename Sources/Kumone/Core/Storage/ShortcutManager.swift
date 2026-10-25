@@ -105,7 +105,7 @@ public enum ShortcutAction: String, Codable, CaseIterable, Identifiable, Hashabl
         case .nextTrack: return String(localized: "下一首")
         case .previousTrack: return String(localized: "上一首")
         case .cycleQueueOrder: return String(localized: "播放顺序")
-        case .cycleRepeatMode: return String(localized: "循环模式")
+        case .cycleRepeatMode: return String(localized: "播放模式")
         case .toggleLike: return String(localized: "喜欢")
         case .toggleLyrics: return String(localized: "歌词")
         case .toggleQueue: return String(localized: "播放队列")
@@ -307,7 +307,7 @@ final class ShortcutManager: ObservableObject {
             case .cycleQueueOrder:
                 player.cycleQueueOrder()
             case .cycleRepeatMode:
-                player.cycleRepeatMode()
+                player.cyclePlaybackMode()
             case .toggleLike:
                 if let track = player.currentTrack {
                     await AccountStore.shared.toggleLike(trackID: track.id)

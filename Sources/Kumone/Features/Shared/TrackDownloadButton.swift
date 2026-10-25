@@ -9,7 +9,6 @@ struct TrackDownloadButton: View {
     @EnvironmentObject private var account: AccountStore
     @EnvironmentObject private var settings: SettingsManager
     @Environment(\.openLogin) private var openLogin
-    @FocusState private var isFocused: Bool
     @State private var isSubmitting = false
     @State private var confirmRemoval = false
     @State private var removalScope: String?
@@ -26,7 +25,7 @@ struct TrackDownloadButton: View {
     private var isDownloaded: Bool { state.isDownloaded }
     private var canResume: Bool { status.map { $0.canResume && $0 != .waitingNetwork } ?? false }
     private var isActive: Bool { status?.isInProgress == true }
-    private var showsControl: Bool { isVisible || isFocused || status != nil || isSubmitting || isDownloaded }
+    private var showsControl: Bool { isVisible || status != nil || isSubmitting || isDownloaded }
     private var title: String {
         if isActive || isSubmitting { return String(localized: "停止下载") }
         if canResume { return String(localized: "继续下载") }
@@ -42,7 +41,7 @@ struct TrackDownloadButton: View {
                 .contentShape(Circle())
         }
         .buttonStyle(.pressable)
-        .focused($isFocused)
+        .noFocusRing()
         .opacity(showsControl ? 1 : 0)
         .allowsHitTesting(showsControl)
         .accessibilityHidden(!showsControl)

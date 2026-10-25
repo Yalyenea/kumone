@@ -21,6 +21,7 @@ enum RecommendationContext {
 struct TrackRow: View {
     let track: Track
     let index: Int
+    let numberColumnWidth: CGFloat
     var style: TrackRowStyle = .full
     var playability: TrackPlayability = .playable
     /// Extra trailing text (e.g. play count for recents).
@@ -43,11 +44,14 @@ struct TrackRow: View {
     /// re-evaluate this body four times a second.
     @ObservedObject private var downloadState: TrackDownloadState
 
-    init(track: Track, index: Int, style: TrackRowStyle = .full, playability: TrackPlayability = .playable,
+    init(track: Track, index: Int, totalCount: Int, style: TrackRowStyle = .full, playability: TrackPlayability = .playable,
          trailingText: String? = nil, removableFromPlaylistID: Int? = nil, onRemoved: (() -> Void)? = nil,
          onRecommendationReduced: ((Track) -> Void)? = nil, onPlay: @escaping () -> Void) {
         self.track = track
         self.index = index
+        // Size the entire column for the longest ordinal, so four-digit
+        // entries neither wrap nor shift the artwork relative to earlier rows.
+        self.numberColumnWidth = max(28, CGFloat(String(totalCount).count) * 8 + 4)
         self.style = style
         self.playability = playability
         self.trailingText = trailingText
@@ -192,32 +196,9 @@ struct TrackRow: View {
 
     }
 
-    @ViewBuilder
     private var artistLinks: some View {
-        let artists = track.artists.filter { $0.id > 0 && !$0.name.isEmpty }
-        if artists.isEmpty {
-            Text(track.artistNames)
-                .font(.system(size: 11.5))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-        } else {
-            HStack(spacing: 0) {
-                ForEach(Array(artists.enumerated()), id: \.offset) { index, artist in
-                    if index > 0 {
-                        Text(" / ")
-                    }
-                    Button {
-                        openDestination(.artist(artist.id))
-                    } label: {
-                        Text(artist.name)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("打开歌手：\(artist.name)")
-                }
-            }
-            .font(.system(size: 11.5))
-            .foregroundStyle(.secondary)
-            .lineLimit(1)
+        ArtistLinks(artists: track.artists) { id in
+            openDestination(.artist(id))
         }
     }
 
@@ -243,10 +224,12 @@ struct TrackRow: View {
             } else {
                 Text(String(index))
                     .font(.system(size: 12).monospacedDigit())
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
                     .foregroundStyle(.tertiary)
             }
         }
-        .frame(width: 28)
+        .frame(width: numberColumnWidth)
     }
 
     private var likeAndDuration: some View {
@@ -531,6 +514,7 @@ struct TrackListView: View {
         let row = TrackRow(
             track: track,
             index: style == .albumTrack ? (track.trackNo > 0 ? track.trackNo : index + 1) : index + 1,
+            totalCount: tracks.count,
             style: style,
             playability: playability(of: track),
             removableFromPlaylistID: removableFromPlaylistID,
@@ -575,8 +559,6 @@ struct TrackListView: View {
         // Read, not observed: each row watches its own download state, so a
         // transfer elsewhere must not rebuild the whole list.
         if DownloadManager.shared.offlineTracksByID[track.id] != nil { return .playable }
-        // With unblock enabled, gray tracks resolve from third-party sources.
-        if SettingsManager.shared.canResolveUnblockedTracks { return .playable }
         return track.playability(
             privilege: privileges[track.id],
             isLoggedIn: account.isLoggedIn,
@@ -649,6 +631,7 @@ struct AddToPlaylistSheet: View {
             .padding(12)
         }
         .frame(width: 340)
+        .noFocusRing()
     }
 
     private func add(to playlist: PlaylistSummary) {

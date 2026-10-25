@@ -58,6 +58,7 @@ struct SettingsView: View {
         .frame(minWidth: 420, idealWidth: 760, minHeight: 500, idealHeight: 650)
         .background(SettingsWindowToolbar(onClose: { category = .playback }))
         .overlay(alignment: .top) { SettingsToastOverlay() }
+        .noFocusRing()
     }
 
     private var categorySidebar: some View {
@@ -87,6 +88,7 @@ struct SettingsView: View {
                                 in: RoundedRectangle(cornerRadius: 6))
                 }
                 .buttonStyle(.plain)
+                .noFocusRing()
                 .accessibilityAddTraits(category == item ? .isSelected : [])
             }
             Spacer(minLength: 0)
@@ -135,28 +137,6 @@ struct SettingsView: View {
                 }
 
                 AutoMixSettingsSection()
-
-                Section("歌曲解锁") {
-                    Toggle("灰色歌曲解锁", isOn: $settings.enableUnblock)
-                    settingsHint("从已启用音源中匹配无版权或下架歌曲。")
-                }
-
-                if settings.enableUnblock {
-                    Section("可用音源") {
-                        ForEach(AudioSourceID.allCases, id: \.self) { source in
-                            Toggle(source.displayName, isOn: Binding(
-                                get: { settings.enabledAudioSourceIDs.contains(source) },
-                                set: { isEnabled in
-                                    if isEnabled {
-                                        settings.enabledAudioSourceIDs.insert(source)
-                                    } else {
-                                        settings.enabledAudioSourceIDs.remove(source)
-                                    }
-                                }
-                            ))
-                        }
-                    }
-                }
             }
             .formStyle(.grouped)
 
@@ -323,17 +303,21 @@ struct SettingsWindowToolbar: NSViewRepresentable {
                     .sink { [weak self] _ in self?.onClose() }
             }
             updateToolbar()
+            DispatchQueue.main.async { [weak self] in
+                self?.window?.clearAutoFocusIfNeeded()
+            }
         }
 
         func updateToolbar() {
-            guard let window,
-                  window.toolbarStyle != .unifiedCompact || !window.styleMask.contains(.resizable) else { return }
             DispatchQueue.main.async { [weak self] in
                 guard let window = self?.window else { return }
-                // Settings scenes omit the resize handle even with contentMinSize.
-                // Enable it here so the category layout can follow the window width.
-                window.styleMask.insert(.resizable)
-                window.toolbarStyle = .unifiedCompact
+                if window.toolbarStyle != .unifiedCompact || !window.styleMask.contains(.resizable) {
+                    // Settings scenes omit the resize handle even with contentMinSize.
+                    // Enable it here so the category layout can follow the window width.
+                    window.styleMask.insert(.resizable)
+                    window.toolbarStyle = .unifiedCompact
+                }
+                window.contentView?.disableFocusRingsRecursively()
             }
         }
     }

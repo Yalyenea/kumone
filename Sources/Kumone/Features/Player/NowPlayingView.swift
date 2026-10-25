@@ -6,7 +6,6 @@ struct NowPlayingView: View {
 
     @EnvironmentObject private var player: PlayerService
     @ObservedObject private var lyricsCursor = PlayerService.shared.lyricsCursor
-    @EnvironmentObject private var account: AccountStore
     @EnvironmentObject private var settings: SettingsManager
     @EnvironmentObject private var artworkStore: NowPlayingArtworkStore
 
@@ -22,7 +21,6 @@ struct NowPlayingView: View {
                     GeometryReader { content in
                         playbackLayout(size: content.size)
                     }
-                    playbackFooter
                 }
             }
             .frame(width: geo.size.width, height: geo.size.height)
@@ -54,17 +52,15 @@ struct NowPlayingView: View {
             .contentShape(Rectangle())
     }
 
-    /// The title shares the traffic lights' row; the artists sit just below.
+    /// Give song metadata its own row below the window controls, so the
+    /// lyrics layout has breathing room without moving the header buttons.
     private var pageHeader: some View {
         VStack(spacing: 0) {
             headerBar
-                .overlay {
-                    if settings.nowPlayingMode == .lyrics {
-                        trackTitle.frame(maxWidth: 400).padding(.horizontal, 100)
-                    }
-                }
             if settings.nowPlayingMode == .lyrics {
-                trackArtists.frame(maxWidth: 400).padding(.horizontal, 24)
+                trackMetaView
+                    .padding(.horizontal, 32)
+                    .padding(.vertical, 12)
             }
         }
     }
@@ -90,7 +86,7 @@ struct NowPlayingView: View {
             .help("切换播放页模式")
             .accessibilityLabel("切换播放页模式")
             Button(action: close) {
-                headerGlyph("xmark")
+                headerGlyph("chevron.down")
             }
             .buttonStyle(.pressable)
             .help("收起播放页")
@@ -98,19 +94,6 @@ struct NowPlayingView: View {
         }
         .padding(.trailing, 16)
         .frame(height: Theme.Layout.titlebarHeight)
-    }
-
-    private var playbackFooter: some View {
-        VStack(spacing: 4) {
-            NowPlayingScrubber().frame(maxWidth: 700)
-            controls.frame(maxWidth: 500)
-        }
-        .padding(.horizontal, 24)
-        .padding(.top, 8)
-        .padding(.bottom, 12)
-        .frame(maxWidth: .infinity)
-        .background(.black.opacity(0.14))
-        .overlay(alignment: .top) { Rectangle().fill(.white.opacity(0.1)).frame(height: 0.5) }
     }
 
     /// Jump straight to the line the song is on. Used when the view appears,
@@ -241,7 +224,7 @@ struct NowPlayingView: View {
     }
 
     private var trackMetaView: some View {
-        VStack(spacing: 5) {
+        VStack(spacing: 8) {
             trackTitle
             trackArtists
         }
@@ -304,120 +287,6 @@ struct NowPlayingView: View {
             Spacer()
         }
         .padding(.trailing, hasLyricsColumn ? 30 : 0)
-    }
-
-    private var controls: some View {
-        // Equal-width slots so the row always fits the screen: fixed-size
-        // buttons in a plain HStack summed wider than a phone (≈430pt with the
-        // like button), overflowing the layout and shoving the overlays and
-        // metadata off the right edge. `maxWidth: .infinity` per control makes
-        // the row scale to any width instead.
-        HStack(spacing: 0) {
-            if let track = player.currentTrack {
-                let liked = account.isLiked(track.id)
-                circleButton(
-                    icon: liked ? "heart.fill" : "heart",
-                    size: 15, tint: liked ? Theme.accent : nil
-                ) {
-                    Task { await account.toggleLike(trackID: track.id) }
-                }
-                .frame(maxWidth: .infinity)
-            }
-
-            if player.isFMMode {
-                circleButton(icon: "trash", size: 14) {
-                    player.fmTrash()
-                }
-                .frame(maxWidth: .infinity)
-            } else {
-                // Skip AutoMix in the cycle while its order setting is off.
-                circleButton(
-                    icon: queueOrderIcon, size: 14,
-                    tint: queueOrderIsActive ? Theme.accent : nil,
-                    action: cycleQueueOrder
-                )
-                .frame(maxWidth: .infinity)
-                circleButton(icon: "backward.fill", size: 16) {
-                    player.previous()
-                }
-                .frame(maxWidth: .infinity)
-            }
-
-            playPauseButton
-                .frame(maxWidth: .infinity)
-
-            circleButton(icon: "forward.fill", size: 16) {
-                player.next()
-            }
-            .frame(maxWidth: .infinity)
-
-            RoutePickerButton(diameter: 40, glyphSize: 15)
-                .frame(maxWidth: .infinity)
-
-            if player.isFMMode {
-                Image(systemName: "wave.3.right.circle.fill")
-                    .font(.system(size: 15))
-                    .foregroundStyle(.white.opacity(0.5))
-                    .frame(width: 40, height: 40)
-                    .frame(maxWidth: .infinity)
-            } else {
-                circleButton(
-                    icon: player.repeatMode == .one ? "repeat.1" : "repeat",
-                    size: 14,
-                    tint: player.repeatMode != .off ? Theme.accent : nil
-                ) {
-                    player.cycleRepeatMode()
-                }
-                .frame(maxWidth: .infinity)
-            }
-        }
-    }
-
-    private var playPauseButton: some View {
-        Button {
-            player.togglePlayPause()
-        } label: {
-            ZStack {
-                Circle()
-                    .fill(.white)
-                    .frame(width: 44, height: 44)
-                Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                    .font(.system(size: 21, weight: .bold))
-                    .foregroundStyle(.black.opacity(0.85))
-                    .contentTransition(.opacity)
-            }
-        }
-        .buttonStyle(.pressable)
-        .accessibilityLabel(player.isPlaying ? "暂停" : "播放")
-    }
-
-    // MARK: - Queue-order control
-
-    /// The queue-order button's three platform-dependent values. macOS cycles
-    /// Cycle through list order, shuffle and AutoMix.
-
-    private var queueOrderIcon: String {
-        player.queueOrder.symbolName
-    }
-
-    private var queueOrderIsActive: Bool {
-        player.queueOrder != .listed
-    }
-
-    private func cycleQueueOrder() {
-        player.cycleQueueOrder()
-    }
-
-    private func circleButton(icon: String, size: CGFloat,
-                              tint: Color? = nil, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: icon)
-                .font(.system(size: size, weight: .medium))
-                .foregroundStyle(tint ?? .white.opacity(0.8))
-                .frame(width: 40, height: 40)
-                .background(.white.opacity(0.1), in: Circle())
-        }
-        .buttonStyle(.pressable)
     }
 
     // MARK: - Lyrics column
@@ -594,77 +463,6 @@ struct LyricMainText: View {
 }
 
 
-
-// MARK: - Scrubber (white-on-dark variant)
-
-struct NowPlayingScrubber: View {
-    @EnvironmentObject private var player: PlayerService
-    @ObservedObject private var clock = PlayerService.shared.clock
-
-    @State private var isHovering = false
-    @State private var isDragging = false
-    @State private var dragProgress: Double = 0
-
-    private var fraction: Double {
-        guard player.duration > 0 else { return 0 }
-        let value = isDragging ? dragProgress : clock.progress
-        return min(max(value / player.duration, 0), 1)
-    }
-
-    var body: some View {
-        VStack(spacing: 5) {
-            GeometryReader { geo in
-                let width = geo.size.width
-                ZStack(alignment: .leading) {
-                    Capsule()
-                        .fill(.white.opacity(0.25))
-                        .frame(height: 4)
-                    Capsule()
-                        .fill(.white)
-                        .frame(width: max(4, width * fraction), height: 4)
-                    Circle()
-                        .fill(.white)
-                        .frame(width: thumbDiameter, height: thumbDiameter)
-                        .shadow(color: .black.opacity(0.3), radius: 2, y: 1)
-                        .offset(x: width * fraction - thumbDiameter / 2)
-                        .opacity(isHovering || isDragging ? 1 : 0)
-                }
-                .frame(maxHeight: .infinity)
-                .contentShape(Rectangle())
-                .gesture(
-                    DragGesture(minimumDistance: 0)
-                        .onChanged { value in
-                            guard player.duration > 0 else { return }
-                            isDragging = true
-                            player.isScrubbing = true
-                            dragProgress = min(max(value.location.x / width, 0), 1) * player.duration
-                        }
-                        .onEnded { _ in
-                            player.seek(to: dragProgress)
-                            isDragging = false
-                            player.isScrubbing = false
-                        }
-                )
-            }
-            .frame(height: 14)
-            .onHover { hovering in
-                withAnimation(AppAnimation.quick) { isHovering = hovering }
-            }
-
-            HStack {
-                Text(Formatters.duration(isDragging ? dragProgress : clock.progress))
-                Spacer()
-                Text(Formatters.duration(player.duration))
-            }
-            .font(.system(size: 10.5).monospacedDigit())
-            .foregroundStyle(.white.opacity(0.55))
-        }
-    }
-
-    private var thumbDiameter: CGFloat {
-        isDragging ? 13 : (isHovering ? 11 : 9)
-    }
-}
 
 // MARK: - Mini lyrics (compact now-playing)
 

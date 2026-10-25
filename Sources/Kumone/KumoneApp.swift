@@ -48,7 +48,7 @@ public struct KumoneApp: App {
                 // third stop is simply absent where it could do nothing.
                 Button("播放顺序") { player.cycleQueueOrder() }
                     .keyboardShortcut(shortcuts.shortcut(for: .cycleQueueOrder, isGlobal: false).keyboardShortcut)
-                Button("循环模式") { player.cycleRepeatMode() }
+                Button("播放模式") { player.cyclePlaybackMode() }
                     .keyboardShortcut(shortcuts.shortcut(for: .cycleRepeatMode, isGlobal: false).keyboardShortcut)
 
                 Divider()

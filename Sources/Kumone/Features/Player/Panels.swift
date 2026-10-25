@@ -24,6 +24,7 @@ struct LyricsPanel: View {
             RoundedRectangle(cornerRadius: Theme.Radius.panel, style: .continuous)
                 .strokeBorder(.primary.opacity(0.06), lineWidth: 0.5)
         )
+        .noFocusRing()
     }
 
     private var header: some View {
@@ -197,6 +198,7 @@ struct QueuePanel: View {
             RoundedRectangle(cornerRadius: Theme.Radius.panel, style: .continuous)
                 .strokeBorder(.primary.opacity(0.06), lineWidth: 0.5)
         )
+        .noFocusRing()
     }
 
     private var header: some View {

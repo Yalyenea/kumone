@@ -136,7 +136,7 @@ struct NeteaseCDNHostTests {
             try JSONDecoder().decode(Track.self, from: Data("{\"id\":\(id),\"name\":\"Song\",\"dt\":3000}".utf8))
         }
         prefetcher.update(.init(scope: nil, currentTrackID: 1, tracks: tracks, quality: "exhigh",
-                                allowsUnblock: false, pendingDownloadTrackIDs: []))
+                                pendingDownloadTrackIDs: []))
         for _ in 0..<600 {
             if prefetcher.completedTrackIDs == [2, 3] { break }
             try await Task.sleep(for: .milliseconds(5))
@@ -144,7 +144,7 @@ struct NeteaseCDNHostTests {
         #expect(prefetcher.completedTrackIDs == [2, 3])
         #expect(requests.map(\.url) == [dead, twin, twin])
         #expect(requests.allSatisfy { !$0.allowsExpensiveNetworkAccess && !$0.allowsConstrainedNetworkAccess })
-        let entry = try #require(try await cache.entry(for: 2, requestedQuality: "exhigh", allowsUnblock: false))
+        let entry = try #require(try await cache.entry(for: 2, requestedQuality: "exhigh"))
         #expect(try Data(contentsOf: entry.fileURL) == body)
     }
 

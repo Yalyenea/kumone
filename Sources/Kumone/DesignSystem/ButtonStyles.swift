@@ -20,6 +20,7 @@ struct InteractiveCardStyle: ButtonStyle {
             .animation(AppAnimation.spring, value: configuration.isPressed)
             .animation(AppAnimation.spring, value: isHovering)
             .onHover { isHovering = $0 }
+            .focusEffectDisabled()
     }
 }
 
@@ -40,6 +41,7 @@ struct InteractiveRowStyle: ButtonStyle {
             .animation(AppAnimation.quick, value: configuration.isPressed)
             .animation(AppAnimation.quick, value: isHovering)
             .onHover { isHovering = $0 }
+            .focusEffectDisabled()
     }
 }
 
@@ -52,6 +54,7 @@ struct PressableButtonStyle: ButtonStyle {
             .scaleEffect(configuration.isPressed ? pressScale : 1.0)
             .opacity(configuration.isPressed ? 0.7 : 1.0)
             .animation(AppAnimation.quick, value: configuration.isPressed)
+            .focusEffectDisabled()
     }
 }
 
@@ -78,6 +81,7 @@ struct ChipButtonStyle: ButtonStyle {
             .animation(AppAnimation.spring, value: configuration.isPressed)
             .animation(AppAnimation.spring, value: isHovering)
             .onHover { isHovering = $0 }
+            .focusEffectDisabled()
     }
 }
 

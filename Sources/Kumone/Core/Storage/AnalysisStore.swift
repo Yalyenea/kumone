@@ -27,7 +27,7 @@ actor AnalysisStore {
         var analysis: TrackAnalysis
         /// Served quality level the audio was analyzed at, e.g. "exhigh".
         var level: String
-        /// "netease" or "unblock:<source>", as in `EngineAudioCache.Key`.
+        /// Audio source identifier, e.g. "netease", as in `EngineAudioCache.Key`.
         var source: String
     }
 

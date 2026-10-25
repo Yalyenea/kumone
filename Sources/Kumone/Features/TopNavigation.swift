@@ -4,6 +4,8 @@ import SwiftUI
 final class MainWindowTitlebar: NSTitlebarAccessoryViewController {
     static let leadingInset: CGFloat = 140
     private let host = NSHostingView(rootView: AnyView(EmptyView()))
+    private weak var attachedWindow: NSWindow?
+    private var fadedOut = false
 
     init() {
         super.init(nibName: nil, bundle: nil)
@@ -16,11 +18,10 @@ final class MainWindowTitlebar: NSTitlebarAccessoryViewController {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
     func update(content: AnyView, in window: NSWindow) {
+        attachedWindow = window
         host.rootView = content
         updateLayout(in: window)
-        if !window.titlebarAccessoryViewControllers.contains(where: { $0 === self }) {
-            window.addTitlebarAccessoryViewController(self)
-        }
+        updateAttachment(in: window)
     }
 
     func updateLayout(in window: NSWindow) {
@@ -32,7 +33,20 @@ final class MainWindowTitlebar: NSTitlebarAccessoryViewController {
     }
 
     func setFadedOut(_ fadedOut: Bool) {
-        host.isHidden = fadedOut
+        self.fadedOut = fadedOut
+        if let attachedWindow { updateAttachment(in: attachedWindow) }
+    }
+
+    private func updateAttachment(in window: NSWindow) {
+        let index = window.titlebarAccessoryViewControllers.firstIndex { $0 === self }
+        // For a right-aligned accessory, isHidden does not remove AppKit's
+        // hit-testing container. Detach it while the player's header occupies
+        // this row, including when SwiftUI refreshes the navigation content.
+        if fadedOut {
+            if let index { window.removeTitlebarAccessoryViewController(at: index) }
+        } else if index == nil {
+            window.addTitlebarAccessoryViewController(self)
+        }
     }
 }
 
@@ -51,6 +65,7 @@ struct MainWindowHeader: View {
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .noFocusRing()
                     .help("返回")
                     .accessibilityLabel("返回")
                     .keyboardShortcut("[", modifiers: .command)
@@ -72,6 +87,7 @@ struct MainWindowHeader: View {
             )
         }
         .frame(height: 26)
+        .noFocusRing()
     }
 }
 
@@ -166,10 +182,12 @@ struct NavigationMenuButton: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .noFocusRing()
         .help("更多")
         .accessibilityLabel("更多")
         .popover(isPresented: $showMore, arrowEdge: .bottom) {
             MorePanel(selection: $selection)
+                .noFocusRing()
                 .presentationBackground(Platform.windowBackgroundColor)
         }
     }
@@ -339,6 +357,7 @@ struct AccountAvatarButton: View {
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
+        .noFocusRing()
         .help("账户与设置")
         .accessibilityLabel("账户与设置")
         .task(id: account.profile?.avatarUrl) {
@@ -349,6 +368,7 @@ struct AccountAvatarButton: View {
         }
         .popover(isPresented: $showPopover, arrowEdge: .bottom) {
             accountCard
+                .noFocusRing()
                 .presentationBackground(Platform.windowBackgroundColor)
         }
     }
@@ -425,8 +445,10 @@ struct AccountAvatarButton: View {
                     .padding(.vertical, 4)
             }
             .buttonStyle(.plain)
+            .noFocusRing()
         }
         .padding(16)
         .frame(width: 220)
+        .noFocusRing()
     }
 }

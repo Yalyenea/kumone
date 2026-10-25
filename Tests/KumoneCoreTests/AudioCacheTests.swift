@@ -31,44 +31,15 @@ struct AudioCacheTests {
 
         let entry = try await cache.entry(
             for: 1,
-            requestedQuality: "lossless",
-            allowsUnblock: true
+            requestedQuality: "lossless"
         )
 
         #expect(entry?.metadata.servedQuality == "exhigh")
         #expect(entry?.metadata.source == .netease)
         #expect(try await cache.entry(
             for: 1,
-            requestedQuality: "standard",
-            allowsUnblock: true
+            requestedQuality: "standard"
         ) == nil)
-    }
-
-    @Test func unblockEntryRequiresTheUnblockSetting() async throws {
-        let (cache, directory) = makeCache()
-        defer { try? FileManager.default.removeItem(at: directory) }
-
-        try await write(
-            trackID: 2,
-            requestedQuality: "exhigh",
-            servedQuality: nil,
-            source: .unblock("Kuwo"),
-            into: cache
-        )
-
-        let blocked = try await cache.entry(
-            for: 2,
-            requestedQuality: "exhigh",
-            allowsUnblock: false
-        )
-        let allowed = try await cache.entry(
-            for: 2,
-            requestedQuality: "exhigh",
-            allowsUnblock: true
-        )
-
-        #expect(blocked == nil)
-        #expect(allowed?.metadata.source == .unblock("Kuwo"))
     }
 
     @Test func cacheUsageDeletesPartialFilesLeftByAnEarlierRun() async throws {
@@ -120,19 +91,18 @@ struct AudioCacheTests {
         )
         let playingEntry = try #require(await cache.entry(
             for: 3,
-            requestedQuality: "exhigh",
-            allowsUnblock: true
+            requestedQuality: "exhigh"
         ))
         let lease = await cache.retain(playingEntry)
 
         try await cache.enforce(maximumSizeMB: 0)
 
-        #expect(try await cache.fallbackEntry(for: 3, allowsUnblock: true) != nil)
-        #expect(try await cache.fallbackEntry(for: 4, allowsUnblock: true) == nil)
+        #expect(try await cache.fallbackEntry(for: 3) != nil)
+        #expect(try await cache.fallbackEntry(for: 4) == nil)
 
         try await cache.release(lease)
 
-        #expect(try await cache.fallbackEntry(for: 3, allowsUnblock: true) == nil)
+        #expect(try await cache.fallbackEntry(for: 3) == nil)
     }
 
     @Test func completingAWriteUsesTheCurrentCacheLimit() async throws {
@@ -166,7 +136,7 @@ struct AudioCacheTests {
         }
         #expect(wasRejected)
         #expect(FileManager.default.fileExists(atPath: session.partialFileURL.path))
-        #expect(try await cache.fallbackEntry(for: 5, allowsUnblock: true) == nil)
+        #expect(try await cache.fallbackEntry(for: 5) == nil)
 
         try await cache.discard(session)
 

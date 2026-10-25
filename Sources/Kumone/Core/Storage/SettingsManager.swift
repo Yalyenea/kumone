@@ -103,8 +103,6 @@ final class SettingsManager: ObservableObject {
         static let verbatimLyrics = "settings.verbatimLyrics"
         static let volume = "settings.volume"
         static let fmMode = "settings.fmMode"
-        static let unblock = "settings.enableUnblock"
-        static let unblockSources = "settings.enabledUnblockSources"
         static let desktopLyrics = "settings.showDesktopLyrics"
         static let automix = "settings.automixEnabled"
         static let automixTransitions = "settings.automixTransitions"
@@ -189,25 +187,6 @@ final class SettingsManager: ObservableObject {
     /// (yrc) lyrics; falls back to line highlighting when it doesn't.
     @Published var verbatimLyrics: Bool {
         didSet { UserDefaults.standard.set(verbatimLyrics, forKey: Keys.verbatimLyrics) }
-    }
-
-    /// Resolve gray tracks from third-party sources (UnblockNeteaseMusic-style).
-    @Published var enableUnblock: Bool {
-        didSet { UserDefaults.standard.set(enableUnblock, forKey: Keys.unblock) }
-    }
-
-    /// Built-in third-party sources eligible for gray-track resolution.
-    @Published var enabledAudioSourceIDs: Set<AudioSourceID> {
-        didSet {
-            UserDefaults.standard.set(
-                enabledAudioSourceIDs.map(\.rawValue).sorted(),
-                forKey: Keys.unblockSources
-            )
-        }
-    }
-
-    var canResolveUnblockedTracks: Bool {
-        enableUnblock && !enabledAudioSourceIDs.isEmpty
     }
 
     /// Floating desktop lyrics window (LyricsX-style).
@@ -319,12 +298,6 @@ final class SettingsManager: ObservableObject {
         lyricsAnnotation = defaults.string(forKey: Keys.annotation).flatMap(LyricsAnnotation.init)
             ?? (defaults.bool(forKey: Keys.showRomaji) ? .romaji : .off)
         verbatimLyrics = defaults.object(forKey: Keys.verbatimLyrics) as? Bool ?? true
-        enableUnblock = defaults.object(forKey: Keys.unblock) as? Bool ?? true
-        if let rawSourceIDs = defaults.stringArray(forKey: Keys.unblockSources) {
-            enabledAudioSourceIDs = Set(rawSourceIDs.compactMap(AudioSourceID.init))
-        } else {
-            enabledAudioSourceIDs = Set(AudioSourceID.allCases)
-        }
         showDesktopLyrics = defaults.object(forKey: Keys.desktopLyrics) as? Bool ?? false
         automixEnabled = defaults.object(forKey: Keys.automix) as? Bool ?? false
         automixTransitionsEnabled =

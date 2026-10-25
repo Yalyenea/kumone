@@ -6,12 +6,11 @@ struct QueuePrefetchRequest: Equatable {
     let currentTrackID: Int
     let tracks: [Track]
     let quality: String
-    let allowsUnblock: Bool
     let pendingDownloadTrackIDs: Set<Int>
 
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.scope == rhs.scope && lhs.currentTrackID == rhs.currentTrackID && lhs.tracks == rhs.tracks
-            && lhs.quality == rhs.quality && lhs.allowsUnblock == rhs.allowsUnblock
+            && lhs.quality == rhs.quality
     }
 }
 
@@ -115,7 +114,7 @@ final class QueuePrefetcher {
             visitedTrackIDs.insert(track.id)
             if isDownloaded(track.id) { continue }
             do {
-                if let cached = try await cache.entry(for: track.id, requestedQuality: request.quality, allowsUnblock: request.allowsUnblock) {
+                if let cached = try await cache.entry(for: track.id, requestedQuality: request.quality) {
                     guard isCurrent(ticket) else { return }
                     guard cached.metadata.byteCount <= limits.bytes - windowBytes else { windowStopped = true; return }
                     windowBytes += cached.metadata.byteCount

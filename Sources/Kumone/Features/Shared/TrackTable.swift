@@ -47,11 +47,14 @@ struct TrackTable: NSViewRepresentable {
             table.rowHeight = TrackRowStyle.full.desktopRowHeight + 1
             table.usesAutomaticRowHeights = false
             table.selectionHighlightStyle = .none
+            table.focusRingType = .none
+            table.refusesFirstResponder = true
             table.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
             table.autoresizingMask = [.width]
             table.dataSource = self
             table.delegate = self
             scrollView.documentView = table
+            scrollView.focusRingType = .none
             scrollView.hasVerticalScroller = true
             scrollView.scrollerStyle = .overlay
             scrollView.verticalScroller?.controlSize = .small
@@ -145,6 +148,7 @@ struct TrackTable: NSViewRepresentable {
                 cell.host.sizingOptions = []
                 cell.host.rootView = AnyView(view
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .noFocusRing()
                     .environment(\.self, environment))
                 return max(1, fixedHeight)
             }
@@ -152,6 +156,7 @@ struct TrackTable: NSViewRepresentable {
             cell.host.rootView = AnyView(view
                 .frame(width: max(1, width), alignment: .topLeading)
                 .fixedSize(horizontal: false, vertical: true)
+                .noFocusRing()
                 .environment(\.self, environment))
             // The representable receives its viewport after makeNSView.
             // Defer flexible measurement until that width is available.
@@ -198,6 +203,7 @@ struct TrackTable: NSViewRepresentable {
         func update(_ view: AnyView, environment: EnvironmentValues) {
             host.rootView = AnyView(view
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .noFocusRing()
                 .environment(\.self, environment))
         }
 
