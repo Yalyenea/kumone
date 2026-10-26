@@ -3,6 +3,7 @@ import SwiftUI
 /// Artwork and lyrics share the available space; transport stays at the bottom.
 struct NowPlayingView: View {
     let onOpenDestination: (Destination) -> Void
+    let navigation: NavigationActions
 
     @EnvironmentObject private var player: PlayerService
     @ObservedObject private var lyricsCursor = PlayerService.shared.lyricsCursor
@@ -27,6 +28,10 @@ struct NowPlayingView: View {
                 }
             }
             .frame(width: geo.size.width, height: geo.size.height)
+            .background(alignment: .top) {
+                NowPlayingSwipeGesture(direction: .both, onSwipe: close)
+                    .frame(height: 120)
+            }
         }
         // The window toolbar is hidden while this page is up, but SwiftUI keeps
         // reserving its safe area, which pushed the whole immersive layout —
@@ -61,7 +66,6 @@ struct NowPlayingView: View {
     private var pageHeader: some View {
         VStack(spacing: 0) {
             headerBar
-                .hiddenDuringCleanPlayback(nowPlayingIdle.isClean)
             if settings.nowPlayingMode == .lyrics {
                 trackMetaView
                     .padding(.horizontal, 32)
@@ -72,7 +76,10 @@ struct NowPlayingView: View {
 
     private var headerBar: some View {
         HStack(spacing: 4) {
+            NavigationHistoryButtons(navigation: navigation)
+                .padding(.leading, MainWindowTitlebar.leadingInset + 6)
             Spacer()
+          HStack(spacing: 4) {
             Menu {
                 Picker("播放页模式", selection: $settings.nowPlayingMode) {
                     ForEach(NowPlayingMode.allCases) { mode in
@@ -104,6 +111,8 @@ struct NowPlayingView: View {
             .buttonStyle(.pressable)
             .help("收起播放页")
             .accessibilityLabel("收起播放页")
+          }
+          .hiddenDuringCleanPlayback(nowPlayingIdle.isClean)
         }
         .padding(.trailing, 16)
         .frame(height: Theme.Layout.titlebarHeight)

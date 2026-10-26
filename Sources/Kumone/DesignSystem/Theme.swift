@@ -40,7 +40,7 @@ enum Theme {
         /// Extra breathing margin for scrollable content clearing chrome.
         static let scrollBreathingMargin: CGFloat = 8
 
-        static let minWindowWidth: CGFloat = 420
+        static let minWindowWidth: CGFloat = 760
         static let minWindowHeight: CGFloat = 480
         static let defaultWindowWidth: CGFloat = 1200
         static let defaultWindowHeight: CGFloat = 780

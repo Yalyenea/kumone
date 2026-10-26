@@ -105,13 +105,16 @@ extension ButtonStyle where Self == ChipButtonStyle {
 /// on the system tooltip delay or native button hosting.
 private struct ControlHintModifier: ViewModifier {
     let text: String
+    let isPresented: Bool?
     @State private var isHovering = false
+
+    private var isVisible: Bool { isPresented ?? isHovering }
 
     func body(content: Content) -> some View {
         content
-            .onHover { isHovering = $0 }
+            .onHover { if isPresented == nil { isHovering = $0 } }
             .overlay(alignment: .top) {
-                if isHovering {
+                if isVisible {
                     Text(text)
                         .font(.system(size: 11))
                         .foregroundStyle(.primary)
@@ -119,19 +122,20 @@ private struct ControlHintModifier: ViewModifier {
                         .padding(.vertical, 6)
                         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6))
                         .fixedSize()
-                        .offset(y: -34)
+                        // Leave room for the progress lane above the controls.
+                        .offset(y: -50)
                         // The hint must not steal hover from its button.
                         .allowsHitTesting(false)
                         .accessibilityHidden(true)
                         .transition(.opacity)
                 }
             }
-            .animation(AppAnimation.quick, value: isHovering)
+            .animation(AppAnimation.quick, value: isVisible)
     }
 }
 
 extension View {
-    func controlHint(_ text: String) -> some View {
-        modifier(ControlHintModifier(text: text))
+    func controlHint(_ text: String, isPresented: Bool? = nil) -> some View {
+        modifier(ControlHintModifier(text: text, isPresented: isPresented))
     }
 }

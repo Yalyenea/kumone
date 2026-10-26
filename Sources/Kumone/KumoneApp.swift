@@ -16,6 +16,7 @@ public struct KumoneApp: App {
     public var body: some Scene {
         Window("Kumone", id: "main") {
             MainWindow()
+                .scrollIndicators(.never)
                 .environmentObject(player)
                 .environmentObject(account)
                 .environmentObject(settings)
@@ -30,6 +31,7 @@ public struct KumoneApp: App {
         .windowResizability(.contentMinSize)
         .windowToolbarStyle(.unifiedCompact(showsTitle: false))
         .commands {
+            NavigationCommands()
             CommandMenu("播放") {
                 Button(player.isPlaying ? String(localized: "暂停") : String(localized: "播放")) {
                     player.togglePlayPause()
@@ -94,6 +96,7 @@ public struct KumoneApp: App {
         #if DEBUG
         Window(AutoMixDebugPanel.windowTitle, id: AutoMixDebugPanel.windowID) {
             AutoMixDebugPanel()
+                .scrollIndicators(.never)
                 .preferredColorScheme(settings.appearance.colorScheme)
         }
         .defaultSize(width: 460, height: 620)
@@ -102,6 +105,7 @@ public struct KumoneApp: App {
 
         Settings {
             SettingsView()
+                .scrollIndicators(.never)
                 .environment(\.openDestination, { destination in
                     guard destination == .downloaded else { return }
                     NotificationCenter.default.post(name: .showDownloadedMusic, object: nil)

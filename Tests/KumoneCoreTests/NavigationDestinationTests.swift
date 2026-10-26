@@ -53,7 +53,7 @@ struct NavigationDestinationTests {
                     #expect(layout.tabsWidth > 0)
                     #expect(layout.searchWidth > 24)
                     let searchReservation = searchExpanded ? layout.searchWidth : 24
-                    #expect(layout.tabsWidth + 2 * (searchReservation + 18) <= layout.width + 0.001)
+                    #expect(layout.tabsWidth + searchReservation + 18 <= layout.width + 0.001)
                 }
             }
         }
@@ -61,8 +61,49 @@ struct NavigationDestinationTests {
         // Extra pinned tabs fit at the usual window width while search is closed.
         let pinnedTabs = NavigationBarLayout(windowWidth: 790, tabsWidth: 350)
         #expect(pinnedTabs.tabsWidth == 350)
-        let searching = NavigationBarLayout(windowWidth: 790, tabsWidth: 350, searchExpanded: true)
-        #expect(searching.tabsWidth < pinnedTabs.tabsWidth)
+        let compactTabs = NavigationBarLayout(windowWidth: 650, tabsWidth: 350)
+        let searching = NavigationBarLayout(windowWidth: 650, tabsWidth: 350, searchExpanded: true)
+        #expect(searching.tabsWidth < compactTabs.tabsWidth)
+    }
+
+    @Test func historyRestoresRootTabsAndTheirDestinationStacks() {
+        var history = NavigationHistory()
+        history.visit(.init(page: .home, path: [.profile(42), .people(42, followers: false)]))
+        history.visit(.init(page: .likedSongs))
+        history.goBack()
+        #expect(history.current == .init(page: .home, path: [.profile(42), .people(42, followers: false)]))
+        #expect(history.canGoBack)
+        #expect(history.canGoForward)
+        history.goForward()
+        #expect(history.current == .init(page: .likedSongs))
+        #expect(!history.canGoForward)
+    }
+
+    @Test func aNewVisitAfterGoingBackDiscardsForwardHistory() {
+        var history = NavigationHistory()
+        history.visit(.init(path: [.album(1)]))
+        history.visit(.init(path: [.album(1), .artist(2)]))
+        history.goBack()
+        history.visit(.init(path: [.playlist(3)]))
+        #expect(!history.canGoForward)
+        history.goForward()
+        #expect(history.current.path == [.playlist(3)])
+        history.goBack()
+        #expect(history.current.path == [.album(1)])
+    }
+
+    @Test func historyBoundariesAndRepeatedVisitsDoNotCreateEntries() {
+        var history = NavigationHistory()
+        history.visit(.init())
+        history.goBack()
+        history.goForward()
+        #expect(!history.canGoBack)
+        #expect(!history.canGoForward)
+        history.visit(.init(path: [.messages]))
+        history.goBack()
+        history.visit(.init())
+        #expect(!history.canGoBack)
+        #expect(history.canGoForward)
     }
 
     @Test @MainActor func titlebarAttachmentResizesWithoutCreatingToolbarItems() {

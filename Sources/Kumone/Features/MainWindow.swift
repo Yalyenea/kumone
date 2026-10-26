@@ -15,8 +15,7 @@ struct MainWindow: View {
 
     @StateObject private var artworkStore = NowPlayingArtworkStore()
     @StateObject private var nowPlayingIdle = NowPlayingIdleController()
-    @State private var selection: RootPage = .home
-    @State private var localPath: [Destination] = []
+    @State private var history: NavigationHistory
     @State private var showLogin = false
     @State private var mainColumnGeometry = MainColumnGeometry()
     @State private var nowPlayingChromeHidden = false
@@ -25,21 +24,41 @@ struct MainWindow: View {
 
     init(path: Binding<[Destination]>? = nil) {
         externalPath = path
+        _history = State(initialValue: NavigationHistory(path: path?.wrappedValue ?? []))
+    }
+
+    private var selection: RootPage {
+        get { history.current.page }
+        nonmutating set { visit(.init(page: newValue)) }
+    }
+
+    private var selectionBinding: Binding<RootPage> {
+        Binding(get: { selection }, set: { selection = $0 })
     }
 
     private var path: [Destination] {
-        get { externalPath?.wrappedValue ?? localPath }
-        nonmutating set {
-            if let externalPath {
-                externalPath.wrappedValue = newValue
-            } else {
-                localPath = newValue
-            }
-        }
+        get { history.current.path }
+        nonmutating set { visit(.init(page: selection, path: newValue)) }
     }
 
     private var pathBinding: Binding<[Destination]> {
-        externalPath ?? $localPath
+        Binding(get: { path }, set: { path = $0 })
+    }
+
+    private func visit(_ route: NavigationHistory.Route) {
+        history.visit(route)
+        externalPath?.wrappedValue = route.path
+    }
+
+    private var navigationActions: NavigationActions {
+        NavigationActions(canGoBack: history.canGoBack, canGoForward: history.canGoForward,
+            back: { navigateHistory(forward: false) }, forward: { navigateHistory(forward: true) })
+    }
+
+    private func navigateHistory(forward: Bool) {
+        if forward { history.goForward() } else { history.goBack() }
+        externalPath?.wrappedValue = history.current.path
+        player.showNowPlaying = false
     }
 
     var body: some View {
@@ -96,7 +115,8 @@ struct MainWindow: View {
             MainWindowConfigurator(
                 geometry: mainColumnGeometry,
                 titlebarContent: AnyView(
-                    MainWindowHeader(selection: $selection, showLogin: $showLogin, path: pathBinding)
+                    MainWindowHeader(selection: selectionBinding, showLogin: $showLogin,
+                                     path: pathBinding, navigation: navigationActions)
                         .environmentObject(account)
                         .environmentObject(settings)
                 ),
@@ -178,7 +198,7 @@ struct MainWindow: View {
             // page takes a single frame when the window comes back. The
             // player state — and the page on restore — is untouched.
             if player.showNowPlaying, windowVisibility.isOnScreen {
-                NowPlayingView(onOpenDestination: openDestination)
+                NowPlayingView(onOpenDestination: openDestination, navigation: navigationActions)
                     .environmentObject(artworkStore)
                     .background(ArrowCursorOverride())
                     // Resolve the slide at the page boundary, including artwork
@@ -198,6 +218,10 @@ struct MainWindow: View {
         .environmentObject(nowPlayingIdle)
         .environment(\.openLogin, { showLogin = true })
         .environment(\.openDestination, openDestination)
+        .focusedSceneValue(\.navigationActions, navigationActions)
+        .onChange(of: externalPath?.wrappedValue) { _, value in
+            if let value { path = value }
+        }
         .overlay(alignment: .top) {
             if let toast = toasts.current {
                 ToastView(toast: toast)
@@ -219,11 +243,7 @@ struct MainWindow: View {
                 .toolbar(removing: .title)
                 .navigationBarBackButtonHidden(true)
         }
-        .onChange(of: selection) { _ in
-            path = []
-            AppDelegate.shared?.mainWindow?.clearAutoFocusIfNeeded()
-        }
-        .onChange(of: path) { _ in
+        .onChange(of: history.current) { _ in
             AppDelegate.shared?.mainWindow?.clearAutoFocusIfNeeded()
         }
     }
@@ -244,6 +264,11 @@ struct MainWindow: View {
     @ViewBuilder
     private var rootView: some View {
         switch selection {
+        case .profile:
+            if let uid = account.authenticatedAccountID { ProfileView(userID: uid).id(uid) }
+            else { loginPrompt("登录后查看个人主页与消息") }
+        case .messages:
+            MessagesView()
         case .downloaded:
             DownloadedMusicView()
         case .home:

@@ -409,7 +409,7 @@ struct TrackDownloadActions: View {
     private func enqueue() {
         guard account.isLoggedIn else { openLogin(); return }
         MeteredDownloadCenter.shared.request(bulk: false, count: 1, network: downloads.network) { metered in
-            Task { await downloads.enqueue(track: track, quality: settings.audioQuality.rawValue, allowsMetered: metered) }
+            Task { await downloads.enqueue(track: track, quality: account.playbackQuality.rawValue, allowsMetered: metered) }
         }
     }
 }
@@ -545,7 +545,7 @@ struct DownloadCollectionButton: View {
                 await downloads.resumeCollection(owner, allowsMetered: metered)
                 guard downloads.accountScope == scope else { return }
                 await downloads.enqueue(tracks: tracks, owner: owner, name: name,
-                                        quality: settings.audioQuality.rawValue, allowsMetered: metered)
+                                        quality: account.playbackQuality.rawValue, allowsMetered: metered)
             }
         }
     }

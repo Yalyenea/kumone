@@ -247,6 +247,7 @@ final class NeteaseClient: @unchecked Sendable {
         ]
         if let musicU = cookie(named: "MUSIC_U") { header["MUSIC_U"] = musicU }
         if let csrf = cookie(named: "__csrf") { header["__csrf"] = csrf }
+        header.merge(cookieOverrides) { _, override in override }
         body["header"] = header
         let json = try JSONSerialization.data(withJSONObject: body)
         let form = NeteaseCrypto.eapi(apiPath: apiPath, payload: json)

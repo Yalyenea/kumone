@@ -9,9 +9,14 @@ struct UserProfile: Codable, Hashable {
     let backgroundUrl: String?
     let signature: String?
     let vipType: Int
+    let follows: Int?
+    let followeds: Int?
+    let eventCount: Int?
+    let playlistCount: Int?
 
     private enum CodingKeys: String, CodingKey {
         case userId, nickname, avatarUrl, backgroundUrl, signature, vipType
+        case follows, followeds, eventCount, playlistCount
     }
 
     init(from decoder: Decoder) throws {
@@ -22,6 +27,10 @@ struct UserProfile: Codable, Hashable {
         backgroundUrl = try? c.decode(String.self, forKey: .backgroundUrl)
         signature = try? c.decode(String.self, forKey: .signature)
         vipType = (try? c.decode(Int.self, forKey: .vipType)) ?? 0
+        follows = try c.decodeIfPresent(Int.self, forKey: .follows)
+        followeds = try c.decodeIfPresent(Int.self, forKey: .followeds)
+        eventCount = try c.decodeIfPresent(Int.self, forKey: .eventCount)
+        playlistCount = try c.decodeIfPresent(Int.self, forKey: .playlistCount)
     }
 }
 

@@ -84,6 +84,7 @@ final class PlaybackEngine: @unchecked Sendable {
             queue.async {
                 self.userOutputVolume = newValue
                 self.applyMasterVolumeLocked()
+                for state in self.deckStates.values { state.nativePlayback?.setVolume(newValue) }
             }
         }
     }
@@ -118,6 +119,7 @@ final class PlaybackEngine: @unchecked Sendable {
     /// changes; sources that don't match are converted into it instead
     /// (ProgressiveLoader for streams, FileFeeder for local files).
     private let graphFormat = DeckChain.format
+    private var nativeOutputDeviceUID: String?
 
     /// Everything one deck needs: nodes, source, clock offsets, stream flags.
     private final class DeckState {
@@ -156,6 +158,7 @@ final class PlaybackEngine: @unchecked Sendable {
         }
 
         var source: Source = .none
+        var nativePlayback: NativeAudioPlayback?
         var format: AVAudioFormat?
         var isConnected = false
         /// Media time (seconds) of player sample 0 for the current schedule;
@@ -655,6 +658,30 @@ final class PlaybackEngine: @unchecked Sendable {
 
     // MARK: - Loading
 
+    func usesNativePlayback(on deck: Deck) -> Bool {
+        queue.sync { deckStates[deck]?.nativePlayback != nil }
+    }
+
+    func loadNative(from url: URL, on deck: Deck, duration: Double) {
+        queue.sync {
+            let state = deckStates[deck]!
+            invalidateTransitionLocked(touching: deck)
+            resetDeckLocked(state)
+            // An idle DSP graph need not keep the output unit rendering while
+            // AVPlayer owns this source. Loading a normal deck starts it again.
+            if !deckStates.values.contains(where: { $0.isPlaying }) { engine.pause() }
+            let generation = state.generation
+            state.nativePlayback = NativeAudioPlayback(
+                url: url, duration: duration, deck: deck, volume: userOutputVolume,
+                outputDeviceUID: nativeOutputDeviceUID, queue: queue
+            ) { [weak self, weak state] event in
+                guard let self, let state, state.generation == generation,
+                      state.nativePlayback != nil else { return }
+                self.eventContinuation.yield(event)
+            }
+        }
+    }
+
     /// Load a complete local file (cache-hit path); returns its duration.
     /// Does not start playback.
     ///
@@ -825,6 +852,13 @@ final class PlaybackEngine: @unchecked Sendable {
     func play(deck: Deck, from seconds: TimeInterval) {
         queue.async {
             let state = self.deckStates[deck]!
+            if let native = state.nativePlayback {
+                self.pauseDrain?.cancel()
+                self.pauseDrain = nil
+                self.isPaused = false
+                native.play(from: seconds)
+                return
+            }
             // Every deck the pause held comes back with this one — a pause
             // mid-crossfade followed by a play on one side must not leave the
             // other side paused under `isPlaying`.
@@ -906,6 +940,7 @@ final class PlaybackEngine: @unchecked Sendable {
     func pause() {
         queue.async {
             guard !self.isPaused else { return }
+            for state in self.deckStates.values { state.nativePlayback?.pause() }
             // Snapshot positions first — a paused node has no render time to
             // read a position from until it is started again.
             for state in self.deckStates.values where state.isPlaying {
@@ -1034,6 +1069,12 @@ final class PlaybackEngine: @unchecked Sendable {
     private func leavePauseLocked() {
         pauseDrain?.cancel()
         pauseDrain = nil
+        for state in deckStates.values { state.nativePlayback?.resume() }
+        if deckStates.values.contains(where: { $0.nativePlayback != nil }),
+           !deckStates.values.contains(where: { $0.isPlaying }) {
+            isPaused = false
+            return
+        }
         ensureEngineRunningLocked()
         guard engine.isRunning else {
             PlaybackJournal.note("resume deferred: engine did not start")
@@ -1067,6 +1108,7 @@ final class PlaybackEngine: @unchecked Sendable {
     func seek(deck: Deck, to seconds: TimeInterval) {
         queue.async {
             let state = self.deckStates[deck]!
+            if let native = state.nativePlayback { native.seek(to: seconds); return }
             // The seek's flush window mutes this deck while the chain drains,
             // so settling the ride now is inaudible — and the level it comes
             // back at is the one the new position deserves.
@@ -3792,6 +3834,8 @@ final class PlaybackEngine: @unchecked Sendable {
     /// `play(deck:from:)`, `armGaplessLocked`, `beginOverlapLocked`'s ramp,
     /// the gapless drain fallback, and the cancel paths all set it explicitly.
     private func resetDeckLocked(_ state: DeckState, keepingEchoTail: Bool = false) {
+        state.nativePlayback?.stop()
+        state.nativePlayback = nil
         PlaybackJournal.note(String(
             format: "deck reset deck=%@ rate=×%.4f pad=%+.2fdB ride=%+.2fdB echoTail=%@ eq=%@",
             journalDeckName(state), state.timePitch.rate, state.ratePadDB, state.rideDB,
@@ -3880,6 +3924,7 @@ final class PlaybackEngine: @unchecked Sendable {
     /// actually rendered. Falls back to the cached value when the node clock
     /// is unavailable (node paused, engine stopped).
     private func livePositionLocked(_ state: DeckState) -> TimeInterval {
+        if let native = state.nativePlayback { return native.position }
         guard let nodeTime = Self.renderedNodeTime(state.player),
               let playerTime = state.player.playerTime(forNodeTime: nodeTime),
               playerTime.sampleRate > 0 else {
@@ -3925,6 +3970,7 @@ final class PlaybackEngine: @unchecked Sendable {
     }
 
     private func durationLocked(_ state: DeckState) -> TimeInterval? {
+        if let native = state.nativePlayback { return native.duration }
         switch state.source {
         case .file(let file):
             return Double(file.length) / file.processingFormat.sampleRate
@@ -5407,6 +5453,8 @@ final class PlaybackEngine: @unchecked Sendable {
     }
 
     private func applyOutputDeviceLocked(_ deviceID: AudioDeviceID?) {
+        nativeOutputDeviceUID = deviceID.flatMap { id in AudioOutputDevices.current().first { $0.id == id }?.uid }
+        for state in deckStates.values { state.nativePlayback?.setOutputDevice(uid: nativeOutputDeviceUID) }
         guard let target = deviceID ?? AudioOutputDevices.defaultDeviceID() else {
             PlaybackJournal.note("output device change skipped: no target device")
             return

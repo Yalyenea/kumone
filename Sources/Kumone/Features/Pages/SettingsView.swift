@@ -4,6 +4,7 @@ import Combine
 struct SettingsView: View {
     @EnvironmentObject private var settings: SettingsManager
     @EnvironmentObject private var account: AccountStore
+    @ObservedObject private var player = PlayerService.shared
     @Environment(\.openDestination) private var openDestination
     @State private var category: SettingsCategory = .playback
 
@@ -129,15 +130,32 @@ struct SettingsView: View {
             Form {
                 Section("音质") {
                     Picker("播放音质", selection: Binding(
-                        get: { settings.audioQuality },
+                        get: { account.playbackQuality },
                         set: { PlayerService.shared.setAudioQuality($0) }
                     )) {
-                        ForEach(AudioQuality.allCases) { quality in
+                        ForEach(account.availableAudioQualities) { quality in
                             Text(quality.displayName).tag(quality)
                         }
                     }
-                    settingsHint("无损与 Hi-Res 需要黑胶 VIP。未开通时使用可用音质。")
+                    LabeledContent("账号权益", value: account.membershipTier.displayName)
+                    if account.isRefreshingMembership {
+                        ProgressView().controlSize(.small)
+                    } else if account.membershipRefreshFailed {
+                        Button("会员信息暂不可用，点击重试") { Task { await account.refreshMembership() } }
+                    }
+                    if let level = player.servedQuality, let actual = AudioQuality(rawValue: level) {
+                        LabeledContent("当前音质", value: actual.displayName)
+                    }
+                    switch account.membershipTier {
+                    case .free: settingsHint("黑胶 VIP 可用无损、Hi-Res 与高清臻音。")
+                    case .vip: settingsHint("黑胶 SVIP 可用超清母带与空间音频。")
+                    case .svip: settingsHint("实际音质取决于歌曲资源与输出设备。")
+                    }
+                    if account.playbackQuality.usesNativePlayback && settings.automixEnabled {
+                        settingsHint("高解析与空间音频使用原生播放，暂停 AutoMix 混音。")
+                    }
                 }
+                .task { await account.refreshMembership() }
 
                 AutoMixSettingsSection()
             }

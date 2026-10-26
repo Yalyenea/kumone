@@ -490,8 +490,13 @@ final class PlayerService: ObservableObject {
 
     func setAudioQuality(_ quality: AudioQuality) {
         let settings = SettingsManager.shared
+        guard quality.requiredMembership <= AccountStore.shared.membershipTier else {
+            ToastCenter.shared.show(String(localized: "此音质需要更高的会员权益"))
+            return
+        }
         guard settings.audioQuality != quality else { return }
         settings.audioQuality = quality
+        reconcileQueueOrderAvailability()
         guard let track = currentTrack else { return }
         let continuingCurrentTrack = isPlaying || deckLoaded || pendingQualityReload
         // A paused player only discards the old source. Resolving on the next
@@ -614,6 +619,7 @@ final class PlayerService: ObservableObject {
     var autoMixOrderAvailable: Bool {
         return SettingsManager.shared.automixEnabled
             && SettingsManager.shared.automixOrderEnabled
+            && !AccountStore.shared.playbackQuality.usesNativePlayback
     }
 
     /// The single queue-order control (predev §2.1, now the only one): the
@@ -681,7 +687,6 @@ final class PlayerService: ObservableObject {
 
     func setPlaybackMode(_ next: PlaybackMode) {
         guard !isFMMode, next != .autoMix || autoMixOrderAvailable else { return }
-        let previous = playbackMode
         repeatMode = next.repeatMode
         if queueOrder != next.queueOrder {
             // This also persists and refreshes prefetch using the new repeat
@@ -691,7 +696,6 @@ final class PlayerService: ObservableObject {
             persistState()
             schedulePrefetch()
         }
-        if playbackMode != previous { ToastCenter.shared.show(playbackMode.displayName) }
     }
 
     /// Jump to a track in the upcoming list (queue panel click).
@@ -1050,7 +1054,7 @@ final class PlayerService: ObservableObject {
     /// cache-key derivation — shared by playback and prefetch so both always
     /// derive identical keys. Pure: no toasts, no state changes.
     private func resolveSource(for track: Track) async -> ResolvedSource? {
-        let quality = SettingsManager.shared.audioQuality.rawValue
+        let quality = AccountStore.shared.playbackQuality.rawValue
         var data = try? await NeteaseAPI.songURL(ids: [track.id], level: quality).first
         if data?.url == nil, quality != AudioQuality.standard.rawValue {
             data = try? await NeteaseAPI.songURL(ids: [track.id], level: AudioQuality.standard.rawValue).first
@@ -1135,6 +1139,15 @@ final class PlayerService: ObservableObject {
         currentCacheKey = resolved.isTrial ? nil : key
         currentRemoteURL = resolved.url
 
+        if AudioQuality(rawValue: resolved.level ?? key.level)?.usesNativePlayback == true {
+            let cached = resolved.isTrial ? nil : await EngineAudioCache.shared.cachedFileURL(for: key)
+            guard generation == resolveGeneration else { return }
+            playNativeSource(cached ?? NeteaseCDNHost.preferred(for: resolved.url), for: track, quality: resolved.level,
+                             duration: resolved.durationMS.map { Double($0) / 1000 } ?? track.duration,
+                             from: resumeAt)
+            return
+        }
+
         // Progressive streams cannot seek before their bytes arrive. A received
         // checkpoint therefore loads a complete file through the existing cache.
         if resumeAt > 0 {
@@ -1157,7 +1170,8 @@ final class PlayerService: ObservableObject {
                     local = try await EngineAudioCache.shared.download(from: resolved.url, key: key)
                 }
                 guard generation == resolveGeneration else { return }
-                playLocalFile(local, lease: nil, for: track, generation: generation, from: resumeAt)
+                playLocalFile(local, lease: nil, for: track, generation: generation, from: resumeAt,
+                              quality: resolved.level)
                 servedQuality = resolved.level
                 return
             } catch {
@@ -1251,6 +1265,29 @@ final class PlayerService: ObservableObject {
 
     // MARK: - Engine events
 
+    private func playNativeSource(_ url: URL, for track: Track, quality: String?, duration sourceDuration: Double,
+                                  from position: Double = 0) {
+        engine.loadNative(from: url, on: activeDeck, duration: sourceDuration)
+        deckLoaded = true
+        hasLocalFile = url.isFileURL
+        deckFiles[activeDeck] = url.isFileURL ? url : nil
+        currentRemoteURL = url.isFileURL ? nil : url
+        servedQuality = quality
+        duration = sourceDuration
+        progress = position
+        isBuffering = isPlaying && !url.isFileURL
+        pendingQualityReload = false
+        if isPlaying {
+            engine.play(deck: activeDeck, from: position)
+            scrobbleStartIfNeeded(track)
+        } else {
+            enginePaused = false
+        }
+        AudioSpectrum.shared.reset()
+        NowPlayingManager.shared.updateMetadata(for: track, duration: sourceDuration)
+        schedulePrefetch()
+    }
+
     private func handleEngineEvent(_ event: PlaybackEngineEvent) {
         switch event {
         case .deckFinished(let deck):
@@ -1281,8 +1318,26 @@ final class PlayerService: ObservableObject {
                 // was still streaming (same-track repeat) — re-run it.
                 self.schedulePrefetch()
             }
-        case .streamFailed(let deck, _):
+        case .streamFailed(let deck, let error):
             guard deck == activeDeck, deckLoaded else { return }
+            if engine.usesNativePlayback(on: deck) {
+                if let url = currentRemoteURL, let twin = NeteaseCDNHost.failover(from: url, after: error),
+                   let track = currentTrack {
+                    let position = engine.position(of: deck)
+                    currentRemoteURL = twin
+                    playNativeSource(twin, for: track, quality: servedQuality, duration: duration, from: position)
+                } else {
+                    let position = engine.position(of: deck)
+                    pause()
+                    progress = position
+                    engine.stop(deck: deck)
+                    deckLoaded = false
+                    pendingQualityReload = true
+                    isBuffering = false
+                    ToastCenter.shared.show(String(localized: "所选音源播放失败，请尝试其他音质或输出设备"))
+                }
+                return
+            }
             handleStreamFailure()
         case .transitionMidpoint(_, let to, let outcome):
             // Freeze the seam *before* adopting: from here on `currentTrack`
@@ -1374,6 +1429,15 @@ final class PlayerService: ObservableObject {
     /// (Re)start the pipeline for the current auto-advance target. Call after
     /// playback starts and whenever the upcoming list changes.
     private func schedulePrefetch() {
+        // The native renderer owns high-resolution / spatial playback. Feeding
+        // its next track into the stereo DSP deck would change the output path.
+        if engine.usesNativePlayback(on: activeDeck) || AccountStore.shared.playbackQuality.usesNativePlayback {
+            prefetchTask?.cancel()
+            prefetchTask = nil
+            prefetchedNext = nil
+            disarmTransition()
+            return
+        }
         // AutoMix order decides *which* track is next, and until it has there
         // is nothing to prefetch: committing to the list's answer now would
         // download the wrong song and arm it before the choice was made.
@@ -1470,6 +1534,9 @@ final class PlayerService: ObservableObject {
     }
 
     private func armTransitionIfReady() {
+        guard !engine.usesNativePlayback(on: activeDeck),
+              !AccountStore.shared.playbackQuality.usesNativePlayback,
+              prefetchedNext?.level.flatMap(AudioQuality.init)?.usesNativePlayback != true else { return }
         guard !transitionArmed, let next = prefetchedNext else { return }
         // "Stop after this track" needs the track to *end*: an armed hand-over
         // (AutoMix or gapless) would carry playback into the next one first.
@@ -1990,6 +2057,7 @@ final class PlayerService: ObservableObject {
     private var loudnessCompensationEnabled: Bool {
         return SettingsManager.shared.automixEnabled
             && SettingsManager.shared.loudnessCompensationEnabled
+            && !AccountStore.shared.playbackQuality.usesNativePlayback
     }
 
     /// The playback trim to load a track at, given whatever analysis is in hand.
@@ -2013,6 +2081,7 @@ final class PlayerService: ObservableObject {
     /// loudness trim reads the integrated LUFS off the same analysis.
     private var analysisWanted: Bool {
         let settings = SettingsManager.shared
+        guard !AccountStore.shared.playbackQuality.usesNativePlayback else { return false }
         return Self.analysisWanted(master: settings.automixEnabled,
                                    transitions: settings.automixTransitionsEnabled,
                                    order: settings.automixOrderEnabled,
@@ -2032,6 +2101,7 @@ final class PlayerService: ObservableObject {
     private var transitionsWanted: Bool {
         return SettingsManager.shared.automixEnabled
             && SettingsManager.shared.automixTransitionsEnabled
+            && !AccountStore.shared.playbackQuality.usesNativePlayback
     }
 
     /// Sidecar-cached analysis, computing (and persisting) it on a miss.
@@ -2550,7 +2620,7 @@ final class PlayerService: ObservableObject {
         var lease = lease
         if lease == nil, let scope {
             lease = try? await OfflineStore.shared.acquire(accountScope: scope, trackID: track.id,
-                preferredQuality: SettingsManager.shared.audioQuality.rawValue,
+                preferredQuality: AccountStore.shared.playbackQuality.rawValue,
                 allowLowerQuality: anyQuality || !networkState.connected)
         }
         guard let lease else { return nil }
@@ -2566,11 +2636,17 @@ final class PlayerService: ObservableObject {
     /// offline, a cache entry found without a key. Neither gets an analysis
     /// or a loudness trim, so hand-overs from it fall back to gapless.
     private func playLocalFile(_ url: URL, lease: OfflinePlaybackLease?, for track: Track, generation: Int,
-                               from position: TimeInterval = 0) {
+                               from position: TimeInterval = 0, quality: String? = nil) {
         consecutiveFailures = 0
-        servedQuality = lease?.descriptor.identity.quality
+        servedQuality = lease?.descriptor.identity.quality ?? quality
         currentCacheKey = nil
         currentRemoteURL = nil
+        if (servedQuality.flatMap(AudioQuality.init) ?? AccountStore.shared.playbackQuality).usesNativePlayback {
+            offlinePlaybackLease = lease
+            playNativeSource(url, for: track, quality: servedQuality, duration: lease?.descriptor.duration ?? track.duration,
+                             from: position)
+            return
+        }
         engine.stop(deck: activeDeck)
         deckFiles[activeDeck] = nil
         guard let fileDuration = try? engine.loadFile(at: url, on: activeDeck, trimDB: 0) else {
@@ -2649,7 +2725,7 @@ final class PlayerService: ObservableObject {
         offlineScan = Task { [weak self] in
             guard let self, !Task.isCancelled, self.offlineScanID == requestID else { return }
             let selected = try? await OfflineQueueSelector.firstAvailable(candidates, scope: scope,
-                quality: SettingsManager.shared.audioQuality.rawValue, store: .shared,
+                quality: AccountStore.shared.playbackQuality.rawValue, store: .shared,
                 isCached: { await EngineAudioCache.shared.cachedFileURL(trackID: $0) != nil })
             guard !Task.isCancelled, self.offlineScanID == requestID, self.resolveGeneration == generation,
                   self.offlineAccountScope == scope else {

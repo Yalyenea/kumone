@@ -6,6 +6,7 @@ struct AccountSnapshot: Codable {
     let likedTrackIDs: Set<Int>
     let playlists: [PlaylistSummary]
     let savedAt: Date
+    var membership: MusicMembership? = nil
 
     func matches(fingerprint: String?) -> Bool { fingerprint != nil && fingerprint == authenticationFingerprint }
 }

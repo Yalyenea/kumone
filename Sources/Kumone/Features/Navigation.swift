@@ -74,11 +74,12 @@ enum RootPage: String, Identifiable {
     case collections
     case cloud
     case saved
+    case profile, messages
 
     var id: String { rawValue }
 
     static let primaryPages: [RootPage] = [.home, .likedSongs, .daily, .created]
-    static let menuPages: [RootPage] = [.explore, .fm, .downloaded, .recents, .collections, .cloud, .saved]
+    static let menuPages: [RootPage] = [.profile, .messages, .explore, .fm, .downloaded, .recents, .collections, .cloud, .saved]
 
     var requiresLogin: Bool {
         switch self {
@@ -100,6 +101,8 @@ enum RootPage: String, Identifiable {
         case .collections: return "我的收藏"
         case .cloud: return "音乐云盘"
         case .saved: return "收藏的歌单"
+        case .profile: return "个人主页"
+        case .messages: return "消息中心"
         }
     }
 
@@ -116,6 +119,8 @@ enum RootPage: String, Identifiable {
         case .collections: return "star"
         case .cloud: return "icloud"
         case .saved: return "rectangle.stack"
+        case .profile: return "person.crop.circle"
+        case .messages: return "bell"
         }
     }
 
@@ -130,6 +135,10 @@ enum RootPage: String, Identifiable {
 }
 
 enum Destination: Hashable {
+    case profile(Int)
+    case people(Int, followers: Bool)
+    case messages
+    case conversation(Int, String)
     case downloaded, downloadTasks
     case playlist(Int)
     case radarPlaylist(Int)
@@ -150,12 +159,90 @@ extension Array where Element == Destination {
     }
 }
 
+/// Record complete routes so history also crosses root tabs and restores
+/// their destination stacks, rather than only remembering the last pushed page.
+struct NavigationHistory {
+    struct Route: Equatable {
+        var page: RootPage = .home
+        var path: [Destination] = []
+    }
+
+    private(set) var current: Route
+    private var previous: [Route] = []
+    private var next: [Route] = []
+    var canGoBack: Bool { !previous.isEmpty }
+    var canGoForward: Bool { !next.isEmpty }
+
+    init(path: [Destination] = []) { current = Route(path: path) }
+
+    mutating func visit(_ route: Route) {
+        guard route != current else { return }
+        previous.append(current)
+        current = route
+        next.removeAll()
+    }
+
+    mutating func goBack() {
+        guard let route = previous.popLast() else { return }
+        next.append(current)
+        current = route
+    }
+
+    mutating func goForward() {
+        guard let route = next.popLast() else { return }
+        previous.append(current)
+        current = route
+    }
+}
+
+struct NavigationActions {
+    let canGoBack: Bool
+    let canGoForward: Bool
+    let back: () -> Void
+    let forward: () -> Void
+}
+
+private struct NavigationActionsKey: FocusedValueKey {
+    typealias Value = NavigationActions
+}
+
+extension FocusedValues {
+    var navigationActions: NavigationActions? {
+        get { self[NavigationActionsKey.self] }
+        set { self[NavigationActionsKey.self] = newValue }
+    }
+}
+
+struct NavigationCommands: Commands {
+    @FocusedValue(\.navigationActions) private var actions
+
+    var body: some Commands {
+        CommandGroup(after: .toolbar) {
+            Divider()
+            Button("后退") { actions?.back() }
+                .keyboardShortcut("[", modifiers: .command)
+                .disabled(actions?.canGoBack != true)
+            Button("前进") { actions?.forward() }
+                .keyboardShortcut("]", modifiers: .command)
+                .disabled(actions?.canGoForward != true)
+        }
+    }
+}
+
 /// Registers all shared navigation destinations on a stack.
 struct DestinationsModifier: ViewModifier {
     func body(content: Content) -> some View {
         content.navigationDestination(for: Destination.self) { destination in
             Group {
                 switch destination {
+                case .profile(let uid):
+                    ProfileView(userID: uid)
+                case .people(let uid, let followers):
+                    SocialPeopleView(userID: uid, followers: followers)
+                case .messages:
+                    MessagesView()
+                case .conversation(let uid, let name):
+                    ConversationView(userID: uid, name: name)
                 case .downloaded:
                     DownloadedMusicView()
                 case .downloadTasks:

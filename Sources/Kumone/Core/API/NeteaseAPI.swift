@@ -98,6 +98,12 @@ enum NeteaseAPI {
         return try client.decoded(AccountResponse.self, from: data).profile
     }
 
+    static func membership(using client: NeteaseClient = .shared) async throws -> MusicMembership {
+        struct Response: Decodable { let data: MusicMembership }
+        let data = try await client.weapi("/music-vip-membership/client/vip/info", ["userId": ""])
+        return try client.decoded(Response.self, from: data).data
+    }
+
     // MARK: - User library
 
     struct UserPlaylistsResponse: Decodable {
@@ -416,11 +422,24 @@ enum NeteaseAPI {
         let data: [SongURLData]
     }
 
-    static func songURL(ids: [Int], level: String) async throws -> [SongURLData] {
+    static func songURL(ids: [Int], level: String, using client: NeteaseClient = .shared) async throws -> [SongURLData] {
         let idString = "[" + ids.map(String.init).joined(separator: ",") + "]"
-        var payload: [String: Any] = ["ids": idString, "level": level, "encodeType": "flac"]
+        var payload = songURLPayload(level: level)
+        payload["ids"] = idString
+        let data = try await client.eapi("/song/enhance/player/url/v1", payload,
+                                         cookieOverrides: songURLClientOverrides(level: level))
+        return try client.decoded(SongURLResponse.self, from: data).data
+    }
+
+    static func songURLPayload(level: String) -> [String: Any] {
+        var payload: [String: Any] = ["level": level, "encodeType": level == "vivid" ? "mp3" : "flac"]
         if level == "sky" { payload["immerseType"] = "c51" }
-        return try await eapi(SongURLResponse.self, "/song/enhance/player/url/v1", payload).data
+        return payload
+    }
+
+    static func songURLClientOverrides(level: String) -> [String: String] {
+        // Audio Vivid is served to the supported Android client profile.
+        level == "vivid" ? ["os": "android", "appver": "9.5.61"] : [:]
     }
 
     /// Download eligibility is resolved independently of the playback URL.
@@ -434,8 +453,10 @@ enum NeteaseAPI {
 
     static func songDownloadURL(id: Int, level: String, client: NeteaseClient = .shared) async throws -> SongURLData {
         struct Response: Decodable { let data: SongURLData? }
-        let body = try await client.eapi("/song/enhance/download/url/v1",
-                                         ["id": id, "level": level, "immerseType": "c51"])
+        var payload = songURLPayload(level: level)
+        payload["id"] = id
+        let body = try await client.eapi("/song/enhance/download/url/v1", payload,
+                                         cookieOverrides: songURLClientOverrides(level: level))
         let response = try client.decoded(Response.self, from: body)
         guard let data = response.data else { throw OfflineAudioError.unavailable }
         return data

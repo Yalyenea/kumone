@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 final class MainWindowTitlebar: NSTitlebarAccessoryViewController {
-    static let leadingInset: CGFloat = 140
+    static let leadingInset: CGFloat = 76
     private let host = NSHostingView(rootView: AnyView(EmptyView()))
     private weak var attachedWindow: NSWindow?
     private var fadedOut = false
@@ -54,40 +54,59 @@ struct MainWindowHeader: View {
     @Binding var selection: RootPage
     @Binding var showLogin: Bool
     @Binding var path: [Destination]
+    let navigation: NavigationActions
 
     var body: some View {
         GeometryReader { geometry in
             HStack(spacing: 12) {
-                if !path.isEmpty {
-                    Button { path = Array(path.dropLast()) } label: {
-                        Image(systemName: "chevron.left")
-                            .frame(width: 24, height: 26)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .noFocusRing()
-                    .help("返回")
-                    .accessibilityLabel("返回")
-                    .keyboardShortcut("[", modifiers: .command)
-                }
+                NavigationHistoryButtons(navigation: navigation)
+                Spacer(minLength: 0)
+                TopNavigationBar(
+                    selection: $selection,
+                    windowWidth: geometry.size.width + MainWindowTitlebar.leadingInset
+                ) { path.appendIfNotCurrent(.search($0)) }
                 Spacer(minLength: 0)
                 NavigationMenuButton(selection: $selection)
-                AccountAvatarButton(showLogin: $showLogin)
+                AccountAvatarButton(showLogin: $showLogin,
+                    onProfile: { path.appendIfNotCurrent(.profile($0)) },
+                    onMessages: { path.appendIfNotCurrent(.messages) })
             }
-            .padding(.horizontal, 8)
+            .padding(.horizontal, 6)
             .frame(height: geometry.size.height)
 
-            TopNavigationBar(
-                selection: $selection,
-                windowWidth: geometry.size.width + MainWindowTitlebar.leadingInset
-            ) { path.append(.search($0)) }
-            .position(
-                x: (geometry.size.width - MainWindowTitlebar.leadingInset) / 2,
-                y: geometry.size.height / 2
-            )
         }
         .frame(height: 26)
         .noFocusRing()
+    }
+
+}
+
+struct NavigationHistoryButtons: View {
+    let navigation: NavigationActions
+
+    var body: some View {
+        HStack(spacing: 2) {
+            historyButton("后退", symbol: "arrow.left", enabled: navigation.canGoBack,
+                          shortcut: "⌘[", action: navigation.back)
+            historyButton("前进", symbol: "arrow.right", enabled: navigation.canGoForward,
+                          shortcut: "⌘]", action: navigation.forward)
+        }
+    }
+
+    private func historyButton(_ title: LocalizedStringKey, symbol: String, enabled: Bool,
+                               shortcut: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 12.5, weight: .regular))
+                .foregroundStyle(.primary.opacity(enabled ? 0.8 : 0.2))
+                .frame(width: 24, height: 26)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.interactiveRow)
+        .noFocusRing()
+        .disabled(!enabled)
+        .help(Text(title) + Text("  \(shortcut)"))
+        .accessibilityLabel(title)
     }
 }
 
@@ -97,12 +116,13 @@ struct NavigationBarLayout {
     let tabsWidth: CGFloat
 
     init(windowWidth: CGFloat, tabsWidth: CGFloat, searchExpanded: Bool = false) {
-        // Keep the centered content clear of window controls and trailing actions.
-        width = max(0, windowWidth - 260)
-        searchWidth = min(200, width * 0.22)
+        // Reserve room for window controls, both history buttons and account
+        // actions, including their spacing at the minimum window width.
+        width = max(0, windowWidth - 300)
+        searchWidth = min(200, max(80, width * 0.28))
         // Reserve only the search icon until its field is actually expanded.
         let searchReservation = searchExpanded ? searchWidth : 24
-        self.tabsWidth = min(tabsWidth, max(0, width - 2 * (searchReservation + 18)))
+        self.tabsWidth = min(tabsWidth, max(0, width - searchReservation - 18))
     }
 }
 
@@ -126,31 +146,29 @@ struct TopNavigationBar: View {
         let layout = NavigationBarLayout(windowWidth: windowWidth, tabsWidth: tabsWidth,
                                          searchExpanded: searchExpanded)
 
-        ScrollViewReader { proxy in
-            ScrollView(.horizontal) {
-                HStack(spacing: 18) {
-                    ForEach(Array(pages.enumerated()), id: \.element) { index, page in
-                        tab(page, index: index).id(page)
+        HStack(spacing: 18) {
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal) {
+                    HStack(spacing: 18) {
+                        ForEach(Array(pages.enumerated()), id: \.element) { index, page in
+                            tab(page, index: index).id(page)
+                        }
+                    }
+                    .fixedSize()
+                    .onGeometryChange(for: CGFloat.self) { $0.size.width } action: {
+                        tabsWidth = $0
                     }
                 }
-                .fixedSize()
-                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: {
-                    tabsWidth = $0
+                .scrollIndicators(.never)
+                .frame(width: layout.tabsWidth)
+                .onChange(of: selection) { _, page in
+                    proxy.scrollTo(page, anchor: .center)
                 }
             }
-            .scrollIndicators(.never)
-            .frame(width: layout.tabsWidth)
-            .onChange(of: selection) { _, page in
-                proxy.scrollTo(page, anchor: .center)
-            }
-        }
-        .frame(width: layout.width, height: 26)
-        // Expansion stays inside this item's bounds without changing its size.
-        .overlay(alignment: .leading) {
             ToolbarSearchField(expandedWidth: layout.searchWidth, expanded: $searchExpanded,
                                onSubmit: onSearch)
-                .offset(x: (layout.width + layout.tabsWidth) / 2 + 18)
         }
+        .frame(width: layout.width, height: 26)
     }
 
     private func tab(_ page: RootPage, index: Int) -> some View {
@@ -351,7 +369,10 @@ struct ToolbarSearchField: View {
 
 struct AccountAvatarButton: View {
     @Binding var showLogin: Bool
+    var onProfile: (Int) -> Void = { _ in }
+    var onMessages: () -> Void = {}
     @EnvironmentObject private var account: AccountStore
+    @ObservedObject private var messages = MessageCenterStore.shared
     @Environment(\.openSettings) private var openSettings
     @State private var avatarImage: PlatformImage?
     @State private var showPopover = false
@@ -368,6 +389,19 @@ struct AccountAvatarButton: View {
         .noFocusRing()
         .help("账户与设置")
         .accessibilityLabel("账户与设置")
+        .accessibilityValue(Text("\(messages.unread) 条未读"))
+        .overlay(alignment: .topTrailing) {
+            if messages.unread > 0 {
+                Circle().fill(Theme.accent).frame(width: 7, height: 7).allowsHitTesting(false)
+            }
+        }
+        .task(id: account.socialSession) { await messages.refresh() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            Task { await messages.refresh() }
+        }
+        .onChange(of: showPopover) { _, showing in
+            if showing { Task { await messages.refresh() } }
+        }
         .task(id: account.profile?.avatarUrl) {
             avatarImage = nil
             if let url = account.profile?.avatarUrl?.resizedImageURL(96) {
@@ -415,6 +449,24 @@ struct AccountAvatarButton: View {
                             .multilineTextAlignment(.center)
                     }
                 }
+                Divider().opacity(0.4)
+                Button {
+                    showPopover = false
+                    onProfile(profile.userId)
+                } label: {
+                    Label("个人主页", systemImage: "person.crop.circle")
+                        .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 4)
+                }.buttonStyle(.plain)
+                Button {
+                    showPopover = false
+                    onMessages()
+                } label: {
+                    HStack {
+                        Label("消息中心", systemImage: "bell")
+                        Spacer()
+                        if messages.unread > 0 { UnreadCountBadge(count: messages.unread) }
+                    }.padding(.vertical, 4).contentShape(Rectangle())
+                }.buttonStyle(.plain)
                 Divider().opacity(0.4)
                 Button {
                     Task {

@@ -3,6 +3,7 @@ import SwiftUI
 struct PlayerBar: View {
     @EnvironmentObject private var player: PlayerService
     @EnvironmentObject private var settings: SettingsManager
+    @EnvironmentObject private var account: AccountStore
 
     var body: some View {
         GeometryReader { proxy in
@@ -32,6 +33,13 @@ struct PlayerBar: View {
         .background {
             if !player.showNowPlaying {
                 Platform.windowBackgroundColor
+            }
+        }
+        .background {
+            if player.hasCurrentTrack {
+                NowPlayingSwipeGesture(direction: .both) {
+                    withAnimation(AppAnimation.smooth) { player.showNowPlaying.toggle() }
+                }
             }
         }
         .overlay(alignment: .top) { ScrubberLane().offset(y: -7) }
@@ -142,14 +150,19 @@ struct PlayerBar: View {
     private func qualityMenu(showsTitle: Bool, diameter: CGFloat) -> some View {
         Menu {
             Picker("播放音质", selection: Binding(
-                get: { settings.audioQuality },
+                get: { account.playbackQuality },
                 set: { player.setAudioQuality($0) }
             )) {
-                ForEach(AudioQuality.allCases) { quality in
+                ForEach(account.availableAudioQualities) { quality in
                     Text(quality.displayName).tag(quality)
                 }
             }
             .pickerStyle(.inline)
+            Divider()
+            Text(account.membershipTier.displayName)
+            if account.membershipRefreshFailed {
+                Button("重试会员信息") { Task { await account.refreshMembership() } }
+            }
             if let level = player.servedQuality, let quality = AudioQuality(rawValue: level) {
                 Divider()
                 Text("当前音质：\(quality.displayName)")
@@ -157,7 +170,7 @@ struct PlayerBar: View {
         } label: {
             Group {
                 if showsTitle {
-                    QualityTag(text: settings.audioQuality.badge)
+                    QualityTag(text: (player.servedQuality.flatMap(AudioQuality.init) ?? account.playbackQuality).badge)
                 } else {
                     Image(systemName: "waveform")
                         .font(.system(size: 14, weight: .medium))
@@ -172,23 +185,25 @@ struct PlayerBar: View {
         .fixedSize()
         .controlHint(String(localized: "播放音质"))
         .accessibilityLabel("播放音质")
-        .accessibilityValue(settings.audioQuality.displayName)
+        .accessibilityValue((player.servedQuality.flatMap(AudioQuality.init) ?? account.playbackQuality).displayName)
     }
 }
 
-/// All standard modes use the same arrow geometry, stroke and 18-point grid.
+/// Keep mode changes and their short feedback anchored to the same button.
 private struct PlaybackModeButton: View {
     let mode: PlaybackMode
     let isFMMode: Bool
     let diameter: CGFloat
     let action: () -> Void
     @State private var isHovering = false
+    @State private var isShowingMode = false
+    @State private var feedbackTask: Task<Void, Never>?
 
     var body: some View {
         Button(action: action) {
             Group {
-                if isFMMode || mode == .autoMix {
-                    Image(systemName: isFMMode ? "wave.3.right" : "wand.and.stars")
+                if isFMMode || mode == .autoMix || mode == .shuffled {
+                    Image(systemName: isFMMode ? "wave.3.right" : (mode == .shuffled ? "shuffle" : "wand.and.stars"))
                         .font(.system(size: 16, weight: .medium))
                 } else {
                     arrows.stroke(style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
@@ -208,21 +223,32 @@ private struct PlaybackModeButton: View {
         .onHover { isHovering = $0 }
         .animation(AppAnimation.quick, value: isHovering)
         .accessibilityLabel(isFMMode ? String(localized: "私人漫游中") : mode.displayName)
+        .controlHint(mode.displayName, isPresented: isShowingMode)
+        .onChange(of: mode) { _ in
+            feedbackTask?.cancel()
+            isShowingMode = true
+            feedbackTask = Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(1500))
+                guard !Task.isCancelled else { return }
+                isShowingMode = false
+            }
+        }
+        .onDisappear {
+            feedbackTask?.cancel()
+            isShowingMode = false
+        }
     }
 
     private var arrows: Path {
         Path { path in
             switch mode {
-            case .ordered, .shuffled:
+            case .ordered:
                 for row in [CGFloat(5), CGFloat(13)] {
-                    let endY = mode == .shuffled ? 18 - row : row
                     path.move(to: CGPoint(x: 2, y: row))
-                    path.addCurve(to: CGPoint(x: 16, y: endY),
-                                  control1: CGPoint(x: 8, y: row),
-                                  control2: CGPoint(x: 10, y: endY))
-                    path.move(to: CGPoint(x: 13, y: endY - 3))
-                    path.addLine(to: CGPoint(x: 16, y: endY))
-                    path.addLine(to: CGPoint(x: 13, y: endY + 3))
+                    path.addLine(to: CGPoint(x: 16, y: row))
+                    path.move(to: CGPoint(x: 13, y: row - 3))
+                    path.addLine(to: CGPoint(x: 16, y: row))
+                    path.addLine(to: CGPoint(x: 13, y: row + 3))
                 }
             case .repeatOne:
                 path.move(to: CGPoint(x: 2, y: 7))
@@ -242,8 +268,8 @@ private struct PlaybackModeButton: View {
                 path.addLine(to: CGPoint(x: 9.5, y: 11.5))
                 path.move(to: CGPoint(x: 8, y: 11.5))
                 path.addLine(to: CGPoint(x: 11, y: 11.5))
-            case .autoMix:
-                break // AutoMix uses its own symbol above.
+            case .shuffled, .autoMix:
+                break // These modes use their system symbols above.
             }
         }
     }
@@ -377,9 +403,18 @@ struct ScrubberLane: View {
                     Text("\(Formatters.duration(previewFraction * player.duration)) / \(Formatters.duration(player.duration))")
                         .font(.system(size: 11).monospacedDigit())
                         .foregroundStyle(.primary)
-                        .frame(width: 124, height: 26)
+                        .fixedSize()
+                        .padding(.horizontal, 8)
+                        .frame(height: 26)
                         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6))
-                        .offset(x: max(4, min(width - 128, width * previewFraction - 62)), y: -30)
+                        .visualEffect { content, layout in
+                            let previewWidth = layout.size.width
+                            // Keep the fitted label centred on the pointer and inside the lane.
+                            return content.offset(
+                                x: max(4, min(width - previewWidth - 4, width * previewFraction - previewWidth / 2)),
+                                y: -30
+                            )
+                        }
                         .allowsHitTesting(false)
                 }
             }

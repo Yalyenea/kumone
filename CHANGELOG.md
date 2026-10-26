@@ -7,41 +7,63 @@
 `---` 分隔，随后是完整的**中文**部分（`### 新增` / `### 修复` / `### 改进`）。英文块与中文块
 的条目一一对应、顺序一致。（0.3.19 起采用此双语分块格式；更早的版本沿用旧的中英交替格式。）
 
-## Unreleased - 2026-10-24
+## Unreleased - 2026-10-26
+
+### Added
+
+- **macOS**: add personal profiles with playlists, following, followers, posts, a following feed and listening charts, plus a message center for private-message history, comments, mentions, notifications and unread counts; paged data stays isolated to the signed-in account.
+- **macOS**: expand playback quality choices according to active VIP and SVIP benefits, including Hi-Res, master and spatial formats; use native playback for high-resolution and spatial sources and apply the eligible quality to downloads.
 
 ### Fixed
 
 - **macOS**: restore clicks on the now-playing layout and collapse buttons by removing the hidden navigation container; suppress unwanted focus rings while preserving text input and shortcut recording.
 - **macOS**: truncate long artist lists as one line with clickable names and a full-list tooltip; keep four-digit track numbers on one line in an aligned column.
+- **macOS**: preserve the playhead and paused state when changing audio quality, restore lyrics for paused sessions, and keep the song title readable against its playback background.
+- **macOS**: start shuffled playlists with a random song unless a song was explicitly selected, and update profile content when switching between playlists and posts.
 
 ### Improved
 
 - **macOS**: share one compact playback bar across browsing and now-playing pages, with centered transport controls, visible volume and output controls, and one button for ordered, shuffle and repeat-one modes; AutoMix joins the cycle when enabled.
 - **macOS**: restyle the vinyl player with fine grooves, a slim tonearm, an unobstructed album label and stationary reflections.
 - **macOS**: give the lyrics-page title more space below the window controls and shorten English navigation labels to Recent, Saved and Cloud.
+- **macOS**: refine profile and message layouts with compact headers, text tabs, aligned cover grids and quieter list separators; set the main window's minimum width to 760 points.
+- **macOS**: keep back and forward arrows beside the window controls, support Command-[ and Command-], and restore complete page routes across navigation tabs.
+- **macOS**: add idle control hiding, adjustable playback transparency, vinyl tonearm progress and trackpad navigation; refine control hints and seek previews and hide scroll indicators.
 
 ### Removed
 
 - **macOS**: target Apple Silicon (arm64) exclusively and remove universal-binary assembly from packaging and CI.
 - **macOS**: remove third-party audio-source lookup and its settings, sync fields and cache options; playback and prefetch use NetEase sources.
+- **macOS**: remove system-wide hotkeys and simplify shortcut settings around in-app keyboard actions.
 
 ---
+
+### 新增
+
+- **macOS**：新增个人主页，可查看歌单、关注、粉丝、个人动态、关注动态和听歌排行；新增消息中心，可查看私信历史、评论、提及、通知和未读数量；分页数据按登录账号隔离。
+- **macOS**：根据有效的 VIP、SVIP 权益逐级开放音质选项，覆盖 Hi-Res、母带和空间音频；高解析与空间音源使用原生播放路径，下载也采用账号可用的音质。
 
 ### 修复
 
 - **macOS**：移除隐藏导航栏留下的遮挡容器，恢复播放页模式和收起按钮的点击；消除多余焦点框，保留文字输入和快捷键录制。
 - **macOS**：歌手名单过长时整行省略，保留姓名链接并支持悬停查看完整名单；四位数歌曲编号保持单行、整列对齐。
+- **macOS**：切换音质时保留播放进度与暂停状态，恢复暂停会话时加载歌词，歌名颜色跟随播放背景保持可读。
+- **macOS**：随机播放歌单时随机选择首曲，明确点选歌曲时从该曲开始；个人页切换歌单与动态时正确更新内容。
 
 ### 改进
 
 - **macOS**：浏览页与播放页共用紧凑底栏，播放控制居中，音量和输出设备直接可见；顺序、随机和单曲循环合为一个切换按钮，启用 AutoMix 时也纳入切换。
 - **macOS**：黑胶播放器采用细密刻纹、纤细唱臂、完整封面和固定反光。
 - **macOS**：歌词页歌名移至窗口按钮下方，增加间距；英文导航名称缩短为 Recent、Saved 和 Cloud。
+- **macOS**：优化个人页与消息页，采用紧凑资料区、文字标签、对齐的封面网格和简洁分隔线；主窗口最小宽度设为 760。
+- **macOS**：前进、后退箭头固定在窗口控制键旁，支持 Command-[、Command-]，切换导航栏目后也能恢复完整页面路径。
+- **macOS**：新增播放控件闲置隐藏、可调背景透明度、唱臂进度显示和触控板导航；优化控件提示与进度预览，隐藏滚动条。
 
 ### 移除
 
 - **macOS**：仅支持 Apple 芯片（arm64），移除打包脚本和 CI 中的双架构构建流程。
 - **macOS**：移除第三方音源查找及相关设置、同步字段和缓存选项，播放与预取使用网易云音源。
+- **macOS**：移除全局快捷键，简化为应用内操作的快捷键设置。
 
 ## 0.3.21 - 2026-10-19
 

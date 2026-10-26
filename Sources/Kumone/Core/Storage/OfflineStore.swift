@@ -81,11 +81,10 @@ actor OfflineStore {
 
     func reusableDescriptor(accountScope: String, trackID: Int, quality: String, retainingFor owner: String? = nil) throws -> OfflineAudioDescriptor? {
         let db = try preparedDatabase()
-        let rank = AudioQuality.allCases.map(\.rawValue)
-        guard let requested = rank.firstIndex(of: quality) else { return nil }
+        guard AudioQuality(rawValue: quality) != nil else { return nil }
         for record in try db.records(scope: accountScope, trackID: trackID) where record.state == .complete {
             guard record.descriptor.identity.source == "netease",
-                  (rank.firstIndex(of: record.descriptor.identity.quality) ?? -1) >= requested else { continue }
+                  AudioQuality.canSubstitute(record.descriptor.identity.quality, for: quality) else { continue }
             if var available = try availableRecord(record, database: db) {
                 if let owner { available.retainedBy.insert(owner); try db.save(available) }
                 return available.descriptor
@@ -162,11 +161,9 @@ actor OfflineStore {
                  allowLowerQuality: Bool = true) throws -> OfflinePlaybackLease? {
         let db = try preparedDatabase()
         let records = try playbackRecords(accountScope: accountScope, trackID: trackID, preferredQuality: preferredQuality)
-        let qualities = AudioQuality.allCases.map(\.rawValue)
         for candidate in records {
             if !allowLowerQuality {
-                guard let requested = qualities.firstIndex(of: preferredQuality),
-                      let stored = qualities.firstIndex(of: candidate.descriptor.identity.quality), stored >= requested else { continue }
+                guard AudioQuality.canSubstitute(candidate.descriptor.identity.quality, for: preferredQuality) else { continue }
             }
             guard var record = try availableRecord(candidate, database: db) else { continue }
             record.lastPlayed = Date()

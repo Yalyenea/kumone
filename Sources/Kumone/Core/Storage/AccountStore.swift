@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import AppKit
 
 /// Login state and the user's library: profile, liked track IDs, playlists.
 @MainActor
@@ -12,6 +13,18 @@ final class AccountStore: ObservableObject {
     @Published var likedAlbums: [AlbumSummary] = []
     @Published var likedArtists: [ArtistSummary] = []
     @Published var isBootstrapped = false
+    @Published private(set) var membership: MusicMembership?
+    @Published private(set) var isRefreshingMembership = false
+    @Published private(set) var membershipRefreshFailed = false
+
+    var membershipTier: MusicMembershipTier {
+        authenticatedAccountID == nil ? .free : membership?.tier() ?? .free
+    }
+    var availableAudioQualities: [AudioQuality] { AudioQuality.available(for: membershipTier) }
+    var playbackQuality: AudioQuality {
+        let selected = SettingsManager.shared.audioQuality
+        return selected.requiredMembership <= membershipTier ? selected : .exhigh
+    }
 
     var isLoggedIn: Bool { NeteaseClient.shared.isLoggedIn && profile != nil }
     var hasAuthCookie: Bool { NeteaseClient.shared.isLoggedIn }
@@ -20,6 +33,9 @@ final class AccountStore: ObservableObject {
         return profile?.userId
     }
     var vipType: Int { profile?.vipType ?? 0 }
+    var socialSession: String? {
+        authenticatedAccountID == nil ? nil : NeteaseClient.shared.authenticationFingerprint
+    }
     var offlineScope: String? {
         guard hasAuthCookie else { return "guest" }
         guard profileBinding == NeteaseClient.shared.authenticationFingerprint else { return nil }
@@ -30,6 +46,8 @@ final class AccountStore: ObservableObject {
     private var playlistSyncTask: Task<Void, Never>?
     private var playlistSyncID = UUID()
     private var networkObserver: AnyCancellable?
+    private var activationObserver: AnyCancellable?
+    private var membershipRequestID = UUID()
 
     var likedSongsPlaylist: PlaylistSummary? {
         userPlaylists.first(where: \.isLikedSongsList) ?? userPlaylists.first
@@ -51,6 +69,7 @@ final class AccountStore: ObservableObject {
             likedTrackIDs = snapshot.likedTrackIDs
             userPlaylists = snapshot.playlists
             profileBinding = snapshot.authenticationFingerprint
+            membership = snapshot.membership
         }
     }
 
@@ -78,9 +97,11 @@ final class AccountStore: ObservableObject {
 
     func refreshLibrary() async {
         guard let uid = profile?.userId else { return }
+        async let refreshedMembership: Void = refreshMembership()
         async let playlists = try? NeteaseAPI.userPlaylists(uid: uid)
         async let liked = try? NeteaseAPI.likedTrackIDs(uid: uid)
         let (fetchedPlaylists, fetchedLiked) = await (playlists, liked)
+        await refreshedMembership
         guard profile?.userId == uid, profileBinding == NeteaseClient.shared.authenticationFingerprint else { return }
         userPlaylists = fetchedPlaylists ?? userPlaylists
         if let ids = fetchedLiked { likedTrackIDs = Set(ids) }
@@ -88,8 +109,37 @@ final class AccountStore: ObservableObject {
         syncPlaylistContents()
     }
 
+    func refreshMembership() async {
+        guard let uid = authenticatedAccountID, !isRefreshingMembership else { return }
+        let binding = profileBinding
+        let requestID = UUID()
+        membershipRequestID = requestID
+        isRefreshingMembership = true
+        defer { if membershipRequestID == requestID { isRefreshingMembership = false } }
+        do {
+            let fetched = try await NeteaseAPI.membership()
+            guard membershipRequestID == requestID, authenticatedAccountID == uid,
+                  binding == profileBinding else { return }
+            membership = fetched
+            membershipRefreshFailed = false
+            saveSnapshot()
+            let selected = SettingsManager.shared.audioQuality
+            if selected.requiredMembership > fetched.tier() {
+                PlayerService.shared.setAudioQuality(.exhigh)
+                ToastCenter.shared.show(String(localized: "会员权益已更新，播放音质已调整为极高"))
+            }
+        } catch {
+            guard membershipRequestID == requestID, authenticatedAccountID == uid,
+                  binding == profileBinding else { return }
+            membershipRefreshFailed = true
+        }
+    }
+
     private func observeLibraryNetwork() {
         guard networkObserver == nil else { return }
+        activationObserver = NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in Task { await self?.refreshMembership() } }
         networkObserver = DownloadManager.shared.$network.map(\.connected).removeDuplicates().dropFirst()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] connected in
@@ -192,9 +242,14 @@ final class AccountStore: ObservableObject {
 
     private func applyProfile(_ value: UserProfile?, binding: String?) {
         let oldID = profile?.userId
+        let changedSession = profileBinding != binding
         profile = value
         profileBinding = binding
-        if oldID != value?.userId {
+        if oldID != value?.userId || changedSession {
+            membershipRequestID = UUID()
+            membership = nil
+            isRefreshingMembership = false
+            membershipRefreshFailed = false
             cancelPlaylistSync()
             likedTrackIDs = []
             userPlaylists = []
@@ -208,7 +263,8 @@ final class AccountStore: ObservableObject {
     private func saveSnapshot() {
         guard let profile, let binding = profileBinding, binding == NeteaseClient.shared.authenticationFingerprint else { return }
         try? AccountSnapshotStorage.shared.save(.init(authenticationFingerprint: binding, profile: profile,
-                                                      likedTrackIDs: likedTrackIDs, playlists: userPlaylists, savedAt: Date()))
+                                                      likedTrackIDs: likedTrackIDs, playlists: userPlaylists,
+                                                      savedAt: Date(), membership: membership))
     }
 
     /// Refresh the login cookie at most once per calendar day.

@@ -1,35 +1,5 @@
 import SwiftUI
 
-enum AudioQuality: String, CaseIterable, Identifiable {
-    case standard
-    case higher
-    case exhigh
-    case lossless
-    case hires
-
-    var id: String { rawValue }
-
-    var displayName: String {
-        switch self {
-        case .standard: return String(localized: "标准")
-        case .higher: return String(localized: "较高")
-        case .exhigh: return String(localized: "极高")
-        case .lossless: return String(localized: "无损")
-        case .hires: return "Hi-Res"
-        }
-    }
-
-    var badge: String {
-        switch self {
-        case .standard: return String(localized: "标准")
-        case .higher: return String(localized: "较高")
-        case .exhigh: return String(localized: "极高")
-        case .lossless: return String(localized: "无损")
-        case .hires: return String(localized: "高解析")
-        }
-    }
-}
-
 enum AppAppearance: String, CaseIterable, Identifiable {
     case auto, light, dark
 

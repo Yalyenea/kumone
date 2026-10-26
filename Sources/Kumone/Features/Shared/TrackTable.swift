@@ -55,9 +55,9 @@ struct TrackTable: NSViewRepresentable {
             table.delegate = self
             scrollView.documentView = table
             scrollView.focusRingType = .none
-            scrollView.hasVerticalScroller = true
-            scrollView.scrollerStyle = .overlay
-            scrollView.verticalScroller?.controlSize = .small
+            // AppKit tables configure their indicators separately from SwiftUI.
+            scrollView.hasVerticalScroller = false
+            scrollView.hasHorizontalScroller = false
             scrollView.drawsBackground = false
             scrollView.borderType = .noBorder
             scrollView.automaticallyAdjustsContentInsets = false
