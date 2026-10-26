@@ -681,6 +681,7 @@ final class PlayerService: ObservableObject {
 
     func setPlaybackMode(_ next: PlaybackMode) {
         guard !isFMMode, next != .autoMix || autoMixOrderAvailable else { return }
+        let previous = playbackMode
         repeatMode = next.repeatMode
         if queueOrder != next.queueOrder {
             // This also persists and refreshes prefetch using the new repeat
@@ -690,6 +691,7 @@ final class PlayerService: ObservableObject {
             persistState()
             schedulePrefetch()
         }
+        if playbackMode != previous { ToastCenter.shared.show(playbackMode.displayName) }
     }
 
     /// Jump to a track in the upcoming list (queue panel click).

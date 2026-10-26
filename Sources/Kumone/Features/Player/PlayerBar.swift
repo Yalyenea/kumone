@@ -43,6 +43,7 @@ struct PlayerBar: View {
             VStack(alignment: .leading, spacing: 2) {
                 MarqueeText(text: player.currentTrack?.name ?? String(localized: "未在播放"))
                     .frame(height: 17)
+                    .help(player.currentTrack?.name ?? String(localized: "未在播放"))
                 Text(player.currentTrack?.artistNames ?? "Kumone")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
@@ -74,14 +75,8 @@ struct PlayerBar: View {
 
     private func transportControls(diameter: CGFloat, gap: CGFloat) -> some View {
         HStack(spacing: gap) {
-            PlayerIconButton(
-                icon: player.isFMMode ? "wave.3.right" : player.playbackMode.symbolName,
-                size: 16, diameter: diameter,
-                isActive: player.playbackMode != .ordered,
-                disabled: player.isFMMode
-            ) { player.cyclePlaybackMode() }
-            .help(player.isFMMode ? String(localized: "私人漫游中") : player.playbackMode.displayName)
-            .accessibilityLabel(player.isFMMode ? String(localized: "私人漫游中") : player.playbackMode.displayName)
+            PlaybackModeButton(mode: player.playbackMode, isFMMode: player.isFMMode,
+                               diameter: diameter) { player.cyclePlaybackMode() }
 
             PlayerIconButton(icon: player.isFMMode ? "trash" : "backward.end.fill",
                              size: 17, diameter: diameter) {
@@ -102,7 +97,8 @@ struct PlayerBar: View {
                              isActive: player.activePanel == .queue, disabled: player.isFMMode) {
                 player.activePanel = player.activePanel == .queue ? nil : .queue
             }
-            .help("播放队列")
+            .controlHint(player.activePanel == .queue
+                         ? String(localized: "收起播放队列") : String(localized: "打开播放队列"))
             .accessibilityLabel("播放队列")
         }
         .disabled(!player.hasCurrentTrack)
@@ -125,7 +121,6 @@ struct PlayerBar: View {
         }
         .buttonStyle(.pressable)
         .accessibilityLabel(player.isPlaying ? "暂停" : "播放")
-        .help(player.isPlaying ? "暂停" : "播放")
     }
 
     private func optionsSection(compact: Bool, diameter: CGFloat, showsQualityTitle: Bool) -> some View {
@@ -135,7 +130,8 @@ struct PlayerBar: View {
                              diameter: diameter, isActive: settings.showDesktopLyrics) {
                 settings.showDesktopLyrics.toggle()
             }
-            .help("桌面歌词")
+            .controlHint(settings.showDesktopLyrics
+                         ? String(localized: "关闭桌面歌词") : String(localized: "打开桌面歌词"))
             .accessibilityLabel("桌面歌词")
             RoutePickerButton(diameter: diameter, glyphSize: 16,
                               tint: .primary, background: .clear)
@@ -174,22 +170,83 @@ struct PlayerBar: View {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
-        .help("播放音质")
+        .controlHint(String(localized: "播放音质"))
         .accessibilityLabel("播放音质")
         .accessibilityValue(settings.audioQuality.displayName)
     }
 }
 
-private extension PlaybackMode {
-    var symbolName: String {
-        switch self {
-        case .ordered: return "arrow.right"
-        case .shuffled: return "shuffle"
-        case .repeatOne: return "repeat.1"
-        case .autoMix: return "wand.and.stars"
+/// All standard modes use the same arrow geometry, stroke and 18-point grid.
+private struct PlaybackModeButton: View {
+    let mode: PlaybackMode
+    let isFMMode: Bool
+    let diameter: CGFloat
+    let action: () -> Void
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Group {
+                if isFMMode || mode == .autoMix {
+                    Image(systemName: isFMMode ? "wave.3.right" : "wand.and.stars")
+                        .font(.system(size: 16, weight: .medium))
+                } else {
+                    arrows.stroke(style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+                }
+            }
+            .frame(width: 18, height: 18)
+            .foregroundStyle(.primary)
+            .frame(width: diameter, height: diameter)
+            .background(.primary.opacity(isHovering ? 0.08 : 0),
+                        in: RoundedRectangle(cornerRadius: 7))
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.pressable)
+        .noFocusRing()
+        .disabled(isFMMode)
+        .opacity(isFMMode ? 0.35 : 1)
+        .onHover { isHovering = $0 }
+        .animation(AppAnimation.quick, value: isHovering)
+        .accessibilityLabel(isFMMode ? String(localized: "私人漫游中") : mode.displayName)
     }
 
+    private var arrows: Path {
+        Path { path in
+            switch mode {
+            case .ordered, .shuffled:
+                for row in [CGFloat(5), CGFloat(13)] {
+                    let endY = mode == .shuffled ? 18 - row : row
+                    path.move(to: CGPoint(x: 2, y: row))
+                    path.addCurve(to: CGPoint(x: 16, y: endY),
+                                  control1: CGPoint(x: 8, y: row),
+                                  control2: CGPoint(x: 10, y: endY))
+                    path.move(to: CGPoint(x: 13, y: endY - 3))
+                    path.addLine(to: CGPoint(x: 16, y: endY))
+                    path.addLine(to: CGPoint(x: 13, y: endY + 3))
+                }
+            case .repeatOne:
+                path.move(to: CGPoint(x: 2, y: 7))
+                path.addQuadCurve(to: CGPoint(x: 5, y: 4), control: CGPoint(x: 2, y: 4))
+                path.addLine(to: CGPoint(x: 16, y: 4))
+                path.move(to: CGPoint(x: 13, y: 1))
+                path.addLine(to: CGPoint(x: 16, y: 4))
+                path.addLine(to: CGPoint(x: 13, y: 7))
+                path.move(to: CGPoint(x: 16, y: 11))
+                path.addQuadCurve(to: CGPoint(x: 13, y: 14), control: CGPoint(x: 16, y: 14))
+                path.addLine(to: CGPoint(x: 2, y: 14))
+                path.move(to: CGPoint(x: 5, y: 11))
+                path.addLine(to: CGPoint(x: 2, y: 14))
+                path.addLine(to: CGPoint(x: 5, y: 17))
+                path.move(to: CGPoint(x: 8, y: 8))
+                path.addLine(to: CGPoint(x: 9.5, y: 6.5))
+                path.addLine(to: CGPoint(x: 9.5, y: 11.5))
+                path.move(to: CGPoint(x: 8, y: 11.5))
+                path.addLine(to: CGPoint(x: 11, y: 11.5))
+            case .autoMix:
+                break // AutoMix uses its own symbol above.
+            }
+        }
+    }
 }
 
 // MARK: - Icon button
@@ -249,7 +306,6 @@ struct LikeButton: View {
         ) {
             Task { await account.toggleLike(trackID: trackID) }
         }
-        .help(liked ? String(localized: "取消喜欢") : String(localized: "喜欢"))
         .accessibilityLabel(liked ? "取消喜欢" : "喜欢")
     }
 }
@@ -261,9 +317,11 @@ struct ScrubberLane: View {
     @ObservedObject private var clock = PlayerService.shared.clock
     @Environment(\.colorScheme) private var colorScheme
 
-    @State private var isHovering = false
+    @State private var hoverFraction: Double?
     @State private var isDragging = false
     @State private var dragProgress: Double = 0
+
+    private var isHovering: Bool { hoverFraction != nil }
 
     private var fraction: Double {
         guard player.duration > 0 else { return 0 }
@@ -286,6 +344,7 @@ struct ScrubberLane: View {
             }
         }
         .onDisappear {
+            hoverFraction = nil
             // Releasing the view mid-drag must also release the audio clock.
             if isDragging {
                 isDragging = false
@@ -297,6 +356,7 @@ struct ScrubberLane: View {
     private var track: some View {
         GeometryReader { geo in
             let width = geo.size.width
+            let previewFraction = isDragging ? fraction : (hoverFraction ?? fraction)
             ZStack(alignment: .leading) {
                 Capsule()
                     .fill(colorScheme == .dark ? Color.white.opacity(0.18) : .black.opacity(0.15))
@@ -313,13 +373,13 @@ struct ScrubberLane: View {
             }
             .frame(maxHeight: .infinity)
             .overlay(alignment: .topLeading) {
-                if isHovering || isDragging {
-                    Text("\(Formatters.duration(isDragging ? dragProgress : clock.progress)) / \(Formatters.duration(player.duration))")
+                if (isHovering || isDragging), player.duration > 0 {
+                    Text("\(Formatters.duration(previewFraction * player.duration)) / \(Formatters.duration(player.duration))")
                         .font(.system(size: 11).monospacedDigit())
                         .foregroundStyle(.primary)
                         .frame(width: 124, height: 26)
                         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6))
-                        .offset(x: max(4, min(width - 128, width * fraction - 62)), y: -30)
+                        .offset(x: max(4, min(width - 128, width * previewFraction - 62)), y: -30)
                         .allowsHitTesting(false)
                 }
             }
@@ -339,11 +399,20 @@ struct ScrubberLane: View {
                         player.isScrubbing = false
                     }
             )
+            .onContinuousHover { phase in
+                switch phase {
+                case .active(let location):
+                    guard width > 0 else { return }
+                    // Preview the pointer's time without moving playback;
+                    // seeking remains exclusive to a click or drag.
+                    hoverFraction = min(max(location.x / width, 0), 1)
+                case .ended:
+                    hoverFraction = nil
+                }
+            }
         }
         .frame(height: 14)
-        .onHover { hovering in
-            withAnimation(AppAnimation.quick) { isHovering = hovering }
-        }
+        .animation(AppAnimation.quick, value: isHovering)
         .animation(.spring(response: 0.24, dampingFraction: 0.72), value: isDragging)
     }
 

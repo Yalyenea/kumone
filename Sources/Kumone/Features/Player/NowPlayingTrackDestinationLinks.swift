@@ -27,6 +27,7 @@ struct NowPlayingTrackDestinationLinks: View {
                         .padding(.vertical, 3)
                 }
                 .buttonStyle(.plain)
+                .help("打开专辑：\(track.album.name)")
                 .accessibilityLabel("打开专辑：\(track.album.name)")
             }
         }

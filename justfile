@@ -15,8 +15,9 @@ test:
 app config="debug":
     make app CONFIG={{ quote(config) }}
 
-# 构建并打开 macOS 应用；可传 release
+# 构建并在 AeroSpace workspace 8 打开 macOS 应用；可传 release
 run config="debug": (app config)
+    aerospace workspace 8
     open .build/app/Kumone.app
 
 # 将 release 应用打包为 ZIP（本地构建签名）

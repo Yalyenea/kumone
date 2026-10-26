@@ -50,10 +50,19 @@ struct MainWindow: View {
             } action: { layout in
                 mainColumnGeometry.update(layout)
             }
-        .background(Platform.windowBackgroundColor)
+        // The page underneath must not show through the playback window's glass.
+        .opacity(hasTransparentPlayback ? 0 : 1)
+        .allowsHitTesting(!hasTransparentPlayback)
+        .accessibilityHidden(hasTransparentPlayback)
+        .background(hasTransparentPlayback ? Color.clear : Platform.windowBackgroundColor)
+        .containerBackground(
+            hasTransparentPlayback
+                ? Color.clear : Platform.windowBackgroundColor,
+            for: .window
+        )
         .coordinateSpace(name: "mainWindow")
         .overlay(alignment: .trailing) {
-            if settings.showMainWindowAmbientBackground {
+            if settings.showMainWindowAmbientBackground, !hasTransparentPlayback {
                 MainColumnAmbientOverlay(
                     geometry: mainColumnGeometry,
                     colors: artworkStore.colors,
@@ -92,7 +101,7 @@ struct MainWindow: View {
                         .environmentObject(settings)
                 ),
                 ambientConfiguration: MainWindowAmbientConfiguration(
-                    showsAmbientBackground: settings.showMainWindowAmbientBackground,
+                    showsAmbientBackground: settings.showMainWindowAmbientBackground && !hasTransparentPlayback,
                     showsTitlebarAmbientBackground: !nowPlayingChromeHidden,
                     showsNowPlaying: player.showNowPlaying,
                     colors: artworkStore.colors,
@@ -184,6 +193,7 @@ struct MainWindow: View {
         .background(NowPlayingActivityMonitor(
             controller: nowPlayingIdle,
             isEnabled: player.showNowPlaying && windowVisibility.isOnScreen
+                && !nowPlayingIdle.isShowingOptions
         ))
         .environmentObject(nowPlayingIdle)
         .environment(\.openLogin, { showLogin = true })
@@ -288,6 +298,10 @@ struct MainWindow: View {
 
     private var needsCurrentArtwork: Bool {
         settings.showMainWindowAmbientBackground || player.hasCurrentTrack
+    }
+
+    private var hasTransparentPlayback: Bool {
+        player.showNowPlaying && settings.transparentPlayback
     }
 
     private var isDarkAppearance: Bool {

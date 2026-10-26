@@ -100,3 +100,38 @@ extension ButtonStyle where Self == PressableButtonStyle {
 extension ButtonStyle where Self == ChipButtonStyle {
     static func chip(isSelected: Bool) -> ChipButtonStyle { ChipButtonStyle(isSelected: isSelected) }
 }
+
+/// Render short control hints in the app so their visibility does not depend
+/// on the system tooltip delay or native button hosting.
+private struct ControlHintModifier: ViewModifier {
+    let text: String
+    @State private var isHovering = false
+
+    func body(content: Content) -> some View {
+        content
+            .onHover { isHovering = $0 }
+            .overlay(alignment: .top) {
+                if isHovering {
+                    Text(text)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.primary)
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 6)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6))
+                        .fixedSize()
+                        .offset(y: -34)
+                        // The hint must not steal hover from its button.
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                        .transition(.opacity)
+                }
+            }
+            .animation(AppAnimation.quick, value: isHovering)
+    }
+}
+
+extension View {
+    func controlHint(_ text: String) -> some View {
+        modifier(ControlHintModifier(text: text))
+    }
+}

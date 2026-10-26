@@ -37,7 +37,7 @@ struct PlayerChromeModifier: ViewModifier {
                 }
             PlayerBar()
                 .environment(\.colorScheme, player.showNowPlaying ? .dark : colorScheme)
-                .hiddenDuringCleanPlayback(nowPlayingIdle.isClean)
+                .hiddenDuringCleanPlayback(nowPlayingIdle.isClean && !nowPlayingIdle.isPreviewingTransport)
         }
         .animation(AppAnimation.standard, value: player.activePanel)
     }

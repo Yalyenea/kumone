@@ -83,7 +83,7 @@ struct OutputDevicePicker: View {
         .popover(isPresented: $isPresented, arrowEdge: .top) {
             OutputDevicePanel(controller: controller) { isPresented = false }
         }
-        .help("输出设备：\(controller.currentDisplayName)")
+        .controlHint(String(localized: "输出设备"))
         .accessibilityLabel("输出设备")
         .accessibilityValue(controller.currentDisplayName)
     }

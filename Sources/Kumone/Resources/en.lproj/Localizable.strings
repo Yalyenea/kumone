@@ -515,6 +515,16 @@
 "黑胶模式" = "Vinyl";
 "经典模式" = "Album artwork";
 "播放页模式" = "Now Playing layout";
+"透明模式" = "Transparent mode";
+"播放页设置" = "Now Playing options";
+"背景透明度" = "Background transparency";
+"背景透明度…" = "Background transparency…";
+"不透明" = "Opaque";
+"完全透明" = "Fully transparent";
 "版本" = "Version";
 "播放进度" = "Playback position";
 "播放模式" = "Playback mode";
+"打开播放队列" = "Show queue";
+"收起播放队列" = "Hide queue";
+"打开桌面歌词" = "Show desktop lyrics";
+"关闭桌面歌词" = "Hide desktop lyrics";

@@ -96,6 +96,8 @@ final class SettingsManager: ObservableObject {
         static let quality = "settings.audioQuality"
         static let appearance = "settings.appearance"
         static let nowPlayingMode = "settings.nowPlayingMode"
+        static let transparentPlayback = "settings.transparentPlayback"
+        static let playbackTransparency = "settings.playbackTransparency"
         static let pinnedNavigationPages = "settings.pinnedNavigationPages"
         static let showTranslation = "settings.showLyricsTranslation"
         static let showRomaji = "settings.showLyricsRomaji"  // migrated to `annotation`
@@ -165,6 +167,17 @@ final class SettingsManager: ObservableObject {
 
     @Published var nowPlayingMode: NowPlayingMode {
         didSet { UserDefaults.standard.set(nowPlayingMode.rawValue, forKey: Keys.nowPlayingMode) }
+    }
+
+    @Published var transparentPlayback: Bool {
+        didSet { UserDefaults.standard.set(transparentPlayback, forKey: Keys.transparentPlayback) }
+    }
+
+    static let playbackTransparencyRange = 0.0...1.0
+    static let defaultPlaybackTransparency = 0.35
+
+    @Published var playbackTransparency: Double {
+        didSet { UserDefaults.standard.set(playbackTransparency, forKey: Keys.playbackTransparency) }
     }
 
     @Published var pinnedNavigationPages: [RootPage] {
@@ -291,6 +304,11 @@ final class SettingsManager: ObservableObject {
         defaults.set(normalizedAudioCacheSizeMB, forKey: Keys.audioCacheSizeMB)
         appearance = defaults.string(forKey: Keys.appearance).flatMap(AppAppearance.init) ?? .auto
         nowPlayingMode = defaults.string(forKey: Keys.nowPlayingMode).flatMap(NowPlayingMode.init) ?? .classic
+        transparentPlayback = defaults.bool(forKey: Keys.transparentPlayback)
+        let storedPlaybackTransparency = defaults.object(forKey: Keys.playbackTransparency) as? Double
+            ?? Self.defaultPlaybackTransparency
+        playbackTransparency = min(max(storedPlaybackTransparency, Self.playbackTransparencyRange.lowerBound),
+                                   Self.playbackTransparencyRange.upperBound)
         pinnedNavigationPages = (defaults.stringArray(forKey: Keys.pinnedNavigationPages) ?? [])
             .compactMap(RootPage.init(rawValue:))
         showLyricsTranslation = defaults.object(forKey: Keys.showTranslation) as? Bool ?? true

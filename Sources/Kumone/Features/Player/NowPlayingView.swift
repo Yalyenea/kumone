@@ -21,7 +21,6 @@ struct NowPlayingView: View {
                     .padding(.bottom, -Theme.Layout.playerBarHeight)
                 VStack(spacing: 0) {
                     pageHeader
-                        .hiddenDuringCleanPlayback(nowPlayingIdle.isClean)
                     GeometryReader { content in
                         playbackLayout(size: content.size)
                     }
@@ -37,6 +36,7 @@ struct NowPlayingView: View {
         .onExitCommand {
             close()
         }
+        .onDisappear { nowPlayingIdle.isShowingOptions = false }
     }
 
     private var hasLyricsColumn: Bool {
@@ -61,6 +61,7 @@ struct NowPlayingView: View {
     private var pageHeader: some View {
         VStack(spacing: 0) {
             headerBar
+                .hiddenDuringCleanPlayback(nowPlayingIdle.isClean)
             if settings.nowPlayingMode == .lyrics {
                 trackMetaView
                     .padding(.horizontal, 32)
@@ -80,6 +81,11 @@ struct NowPlayingView: View {
                 }
                 .pickerStyle(.inline)
                 .labelsHidden()
+                Divider()
+                Toggle("透明模式", isOn: $settings.transparentPlayback)
+                if settings.transparentPlayback {
+                    Button("背景透明度…") { nowPlayingIdle.isShowingOptions = true }
+                }
             } label: {
                 headerGlyph("rectangle.on.rectangle")
             }
@@ -87,8 +93,11 @@ struct NowPlayingView: View {
             .menuIndicator(.hidden)
             .tint(.white.opacity(0.85))
             .fixedSize()
-            .help("切换播放页模式")
-            .accessibilityLabel("切换播放页模式")
+            .popover(isPresented: $nowPlayingIdle.isShowingOptions, arrowEdge: .top) {
+                transparencyOptions
+            }
+            .help("播放页设置")
+            .accessibilityLabel("播放页设置")
             Button(action: close) {
                 headerGlyph("chevron.down")
             }
@@ -98,6 +107,34 @@ struct NowPlayingView: View {
         }
         .padding(.trailing, 16)
         .frame(height: Theme.Layout.titlebarHeight)
+    }
+
+    private var transparencyOptions: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("背景透明度")
+                Spacer()
+                Text(settings.playbackTransparency, format: .percent.precision(.fractionLength(0)))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
+            Slider(value: $settings.playbackTransparency,
+                   in: SettingsManager.playbackTransparencyRange, step: 0.05)
+                .accessibilityLabel("背景透明度")
+                .accessibilityValue(Text(settings.playbackTransparency,
+                                         format: .percent.precision(.fractionLength(0))))
+            HStack {
+                Text("不透明")
+                Spacer()
+                Text("完全透明")
+            }
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+        }
+        .font(.system(size: 12))
+        .controlSize(.small)
+        .frame(width: 220)
+        .padding(12)
     }
 
     /// Jump straight to the line the song is on. Used when the view appears,
@@ -138,8 +175,30 @@ struct NowPlayingView: View {
                 startPoint: .top, endPoint: .bottom
             )
         }
+        .opacity(playbackArtworkOpacity)
+        .background {
+            if settings.transparentPlayback { TransparentPlaybackBackground() }
+        }
+        // Preserve the original glass at the default position; further
+        // transparency fades the entire background without fading the content.
+        .opacity(playbackBackgroundOpacity)
         .ignoresSafeArea()
+        .animation(AppAnimation.smooth, value: settings.transparentPlayback)
         .animation(.easeInOut(duration: 0.8), value: colors)
+    }
+
+    private var playbackBackgroundOpacity: Double {
+        guard settings.transparentPlayback else { return 1 }
+        return min(1, (1 - settings.playbackTransparency)
+                   / (1 - SettingsManager.defaultPlaybackTransparency))
+    }
+
+    private var playbackArtworkOpacity: Double {
+        guard settings.transparentPlayback else { return 1 }
+        // The original appearance used full-strength system glass with a
+        // 28% artwork tint. Interpolate toward opaque below that preset.
+        let fraction = min(settings.playbackTransparency / SettingsManager.defaultPlaybackTransparency, 1)
+        return 1 - fraction * (1 - 0.28)
     }
 
 
@@ -170,7 +229,7 @@ struct NowPlayingView: View {
     private func regularLayout(size: CGSize) -> some View {
         let artworkSize = max(90, min(340, size.width * 0.32, (size.height - 110) / 1.26))
         let maxBandWidth: CGFloat = hasLyricsColumn ? 1040 : 560
-        return HStack(spacing: 0) {
+        return HStack(spacing: hasLyricsColumn ? 30 : 0) {
             leftColumn(artworkSize: artworkSize)
                 .frame(maxWidth: .infinity)
             if hasLyricsColumn {
@@ -196,6 +255,7 @@ struct NowPlayingView: View {
                 }
                 .buttonStyle(.plain)
                 .noFocusRing()
+                .help("打开专辑：\(album.name)")
                 .accessibilityLabel("打开专辑：\(album.name)")
             } else {
                 artworkSurface(size: size)
@@ -233,17 +293,22 @@ struct NowPlayingView: View {
             trackArtists
         }
         .frame(maxWidth: 400)
-        .hiddenDuringCleanPlayback(nowPlayingIdle.isClean)
     }
 
     private var trackTitle: some View {
         HStack(spacing: 8) {
+            if player.currentTrack?.fee == 1 {
+                // Equal badge space keeps the title centred, including
+                // when a long title needs truncation in a narrow window.
+                VIPBadge().hidden().accessibilityHidden(true)
+            }
             Text(player.currentTrack?.name ?? "")
                 .font(.system(size: 21, weight: .bold))
                 .foregroundStyle(.white)
                 .lineLimit(1)
             if player.currentTrack?.fee == 1 {
                 VIPBadge()
+                    .hiddenDuringCleanPlayback(nowPlayingIdle.isClean)
             }
         }
     }
@@ -279,6 +344,7 @@ struct NowPlayingView: View {
                         player.previous()
                     }
                 )
+                .help(player.isPlaying ? "暂停" : "播放")
             } else {
                 artworkView(size: size)
             }
@@ -292,7 +358,6 @@ struct NowPlayingView: View {
             trackMetaView
             Spacer()
         }
-        .padding(.trailing, hasLyricsColumn ? 30 : 0)
     }
 
     // MARK: - Lyrics column
@@ -401,6 +466,20 @@ struct NowPlayingView: View {
         .animation(.spring(response: 0.4, dampingFraction: 0.8), value: isActive)
         .animation(.easeOut(duration: 0.25), value: isUserScrolling)
     }
+}
+
+/// Resolve the glass against a dark appearance even when the app uses a light theme.
+private struct TransparentPlaybackBackground: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = .underWindowBackground
+        view.blendingMode = .behindWindow
+        view.state = .active
+        view.appearance = NSAppearance(named: .darkAqua)
+        return view
+    }
+
+    func updateNSView(_ view: NSVisualEffectView, context: Context) {}
 }
 
 

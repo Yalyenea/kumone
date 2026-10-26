@@ -1,10 +1,22 @@
 import AppKit
+import Combine
 import Testing
 @testable import KumoneCore
 
 @MainActor
 @Suite(.serialized)
 struct NowPlayingIdleTests {
+    @Test func repeatedDisabledHostUpdatesDoNotPublishAnotherRender() {
+        let controller = NowPlayingIdleController()
+        var changes = 0
+        let subscription = controller.$isClean.dropFirst().sink { _ in changes += 1 }
+        controller.setEnabled(false, in: nil)
+        controller.setEnabled(false, in: nil)
+        withExtendedLifetime(subscription) {
+            #expect(changes == 0)
+        }
+    }
+
     @Test func inactivityHidesControlsAndActivityRestoresTheirOriginalState() async throws {
         let window = makeWindow()
         let controller = NowPlayingIdleController(idleInterval: 0.04)
@@ -31,6 +43,31 @@ struct NowPlayingIdleTests {
         #expect(zoom.isHidden)
         try await waitForClean(controller)
         #expect(close.isHidden)
+    }
+
+    @Test func transportHoverPreviewsControlsWithoutWakingWindowChrome() async throws {
+        let window = makeWindow()
+        let controller = NowPlayingIdleController(idleInterval: 0.04)
+        defer {
+            controller.stop()
+            window.close()
+        }
+        controller.setEnabled(true, in: window)
+        try await waitForClean(controller)
+
+        controller.recordActivity(previewingTransport: true)
+        #expect(controller.isClean)
+        #expect(controller.isPreviewingTransport)
+        #expect(window.standardWindowButton(.closeButton)?.isHidden == true)
+
+        controller.recordActivity()
+        #expect(!controller.isClean)
+        #expect(!controller.isPreviewingTransport)
+        #expect(window.standardWindowButton(.closeButton)?.isHidden == false)
+
+        controller.recordActivity(previewingTransport: true)
+        controller.stop()
+        #expect(!controller.isPreviewingTransport)
     }
 
     @Test(arguments: [false, true])

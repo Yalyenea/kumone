@@ -5,6 +5,8 @@ import SwiftUI
 @MainActor
 final class NowPlayingIdleController: ObservableObject {
     @Published private(set) var isClean = false
+    @Published private(set) var isPreviewingTransport = false
+    @Published var isShowingOptions = false
 
     private let idleInterval: TimeInterval
     private weak var window: NSWindow?
@@ -35,22 +37,35 @@ final class NowPlayingIdleController: ObservableObject {
         window.acceptsMouseMovedEvents = true
         lastActivity = ProcessInfo.processInfo.systemUptime
         eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [
-            .mouseMoved, .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp,
+            .mouseMoved, .mouseExited, .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp,
             .otherMouseDown, .otherMouseUp, .leftMouseDragged, .rightMouseDragged,
             .otherMouseDragged, .scrollWheel, .keyDown, .flagsChanged
         ]) { [weak self] event in
             if let self, event.window === self.window {
-                self.recordActivity()
+                let transportBounds = CGRect(
+                    x: 0, y: 0, width: event.window?.frame.width ?? 0,
+                    height: Theme.Layout.playerBarHeight + 7
+                )
+                let isOverTransport = transportBounds.contains(event.locationInWindow)
+                if event.type == .mouseExited {
+                    if !isOverTransport { self.setTransportPreview(false) }
+                } else {
+                    self.recordActivity(previewingTransport: event.type == .mouseMoved && isOverTransport)
+                }
             }
             return event
         }
         scheduleCheck(after: idleInterval)
     }
 
-    func recordActivity() {
+    func recordActivity(previewingTransport: Bool = false) {
         guard window != nil else { return }
+        setTransportPreview(previewingTransport)
         lastActivity = ProcessInfo.processInfo.systemUptime
         guard isClean else { return }
+        // Hovering at the bottom reveals transport without bringing the
+        // window header back. Clicks and keyboard input still wake the page.
+        guard !previewingTransport else { return }
         restoreWindowButtons()
         isClean = false
         scheduleCheck(after: idleInterval)
@@ -62,9 +77,16 @@ final class NowPlayingIdleController: ObservableObject {
         if let eventMonitor { NSEvent.removeMonitor(eventMonitor) }
         eventMonitor = nil
         restoreWindowButtons()
-        isClean = false
+        // The host may repeatedly disable monitoring while a popover is open.
+        // Publishing the same value would trigger another SwiftUI update.
+        if isClean { isClean = false }
+        setTransportPreview(false)
         window?.acceptsMouseMovedEvents = acceptedMouseMovement
         window = nil
+    }
+
+    private func setTransportPreview(_ visible: Bool) {
+        if isPreviewingTransport != visible { isPreviewingTransport = visible }
     }
 
     private func scheduleCheck(after interval: TimeInterval) {
