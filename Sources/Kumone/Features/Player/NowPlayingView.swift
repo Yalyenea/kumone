@@ -8,6 +8,7 @@ struct NowPlayingView: View {
     @ObservedObject private var lyricsCursor = PlayerService.shared.lyricsCursor
     @EnvironmentObject private var settings: SettingsManager
     @EnvironmentObject private var artworkStore: NowPlayingArtworkStore
+    @EnvironmentObject private var nowPlayingIdle: NowPlayingIdleController
 
     @State private var activeIndex: Int?
     @State private var isUserScrolling = false
@@ -20,6 +21,7 @@ struct NowPlayingView: View {
                     .padding(.bottom, -Theme.Layout.playerBarHeight)
                 VStack(spacing: 0) {
                     pageHeader
+                        .hiddenDuringCleanPlayback(nowPlayingIdle.isClean)
                     GeometryReader { content in
                         playbackLayout(size: content.size)
                     }
@@ -231,6 +233,7 @@ struct NowPlayingView: View {
             trackArtists
         }
         .frame(maxWidth: 400)
+        .hiddenDuringCleanPlayback(nowPlayingIdle.isClean)
     }
 
     private var trackTitle: some View {

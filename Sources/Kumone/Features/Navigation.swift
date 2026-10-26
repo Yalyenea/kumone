@@ -26,14 +26,18 @@ extension EnvironmentValues {
 
 struct PlayerChromeModifier: ViewModifier {
     @EnvironmentObject private var player: PlayerService
+    @EnvironmentObject private var nowPlayingIdle: NowPlayingIdleController
     @Environment(\.colorScheme) private var colorScheme
     func body(content: Content) -> some View {
         VStack(spacing: 0) {
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .overlay(alignment: .trailing) { rightPanel }
+                .overlay(alignment: .trailing) {
+                    rightPanel.hiddenDuringCleanPlayback(nowPlayingIdle.isClean)
+                }
             PlayerBar()
                 .environment(\.colorScheme, player.showNowPlaying ? .dark : colorScheme)
+                .hiddenDuringCleanPlayback(nowPlayingIdle.isClean)
         }
         .animation(AppAnimation.standard, value: player.activePanel)
     }

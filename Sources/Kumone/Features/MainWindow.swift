@@ -14,6 +14,7 @@ struct MainWindow: View {
     @ObservedObject private var windowVisibility = MainWindowVisibility.shared
 
     @StateObject private var artworkStore = NowPlayingArtworkStore()
+    @StateObject private var nowPlayingIdle = NowPlayingIdleController()
     @State private var selection: RootPage = .home
     @State private var localPath: [Destination] = []
     @State private var showLogin = false
@@ -180,11 +181,17 @@ struct MainWindow: View {
         // One persistent transport sits above both page surfaces, so opening
         // Now Playing never duplicates controls or hides its queue panel.
         .playerChrome()
+        .background(NowPlayingActivityMonitor(
+            controller: nowPlayingIdle,
+            isEnabled: player.showNowPlaying && windowVisibility.isOnScreen
+        ))
+        .environmentObject(nowPlayingIdle)
         .environment(\.openLogin, { showLogin = true })
         .environment(\.openDestination, openDestination)
         .overlay(alignment: .top) {
             if let toast = toasts.current {
                 ToastView(toast: toast)
+                    .hiddenDuringCleanPlayback(nowPlayingIdle.isClean)
                     .transition(.move(edge: .top).combined(with: .opacity))
                     .padding(.top, 12)
             }
