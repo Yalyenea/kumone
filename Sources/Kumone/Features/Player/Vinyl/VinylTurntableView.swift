@@ -9,11 +9,6 @@ public struct VinylTurntableView: View {
     public let trackId: Int?
     public let size: CGFloat
     public var onTap: (() -> Void)? = nil
-    public var onNextTrack: (() -> Void)? = nil
-    public var onPreviousTrack: (() -> Void)? = nil
-
-    @State private var dragOffset: CGFloat = 0
-    @State private var isDragging = false
     @State private var isTransitioningTrack = false
     @ObservedObject private var windowVisibility = MainWindowVisibility.shared
 
@@ -23,9 +18,7 @@ public struct VinylTurntableView: View {
         duration: TimeInterval = 0,
         trackId: Int? = nil,
         size: CGFloat = 280,
-        onTap: (() -> Void)? = nil,
-        onNextTrack: (() -> Void)? = nil,
-        onPreviousTrack: (() -> Void)? = nil
+        onTap: (() -> Void)? = nil
     ) {
         self.artworkImage = artworkImage
         self.isPlaying = isPlaying
@@ -33,8 +26,6 @@ public struct VinylTurntableView: View {
         self.trackId = trackId
         self.size = size
         self.onTap = onTap
-        self.onNextTrack = onNextTrack
-        self.onPreviousTrack = onPreviousTrack
     }
 
     public var body: some View {
@@ -51,27 +42,24 @@ public struct VinylTurntableView: View {
                 .overlay { Circle().strokeBorder(.white.opacity(0.08), lineWidth: 1) }
                 .frame(width: discSize + 12, height: discSize + 12)
                 .shadow(color: .black.opacity(0.32), radius: discSize * 0.06, y: discSize * 0.035)
-                .offset(x: dragOffset)
                 .padding(.top, discSize * 0.22 - 3)
 
             SpinningVinylDisc(
                 artworkImage: artworkImage,
                 discSize: discSize,
-                spinning: isPlaying && !isDragging && !isTransitioningTrack
+                spinning: isPlaying && !isTransitioningTrack
                     && windowVisibility.isVisible
             )
             .overlay { recordReflection(size: discSize) }
-            .offset(x: dragOffset)
             .padding(.top, discSize * 0.22)
             .contentShape(Circle())
-            .gesture(dragAndSwipeGesture(discSize: discSize))
             .onTapGesture {
                 onTap?()
             }
             .zIndex(1)
 
             VinylTonearmView(
-                isPlaying: isPlaying && !isDragging && !isTransitioningTrack,
+                isPlaying: isPlaying && !isTransitioningTrack,
                 duration: duration,
                 height: armHeight
             )
@@ -111,59 +99,6 @@ public struct VinylTurntableView: View {
             .allowsHitTesting(false)
     }
 
-    // MARK: - Gestures
-
-    private func dragAndSwipeGesture(discSize: CGFloat) -> some Gesture {
-        DragGesture(minimumDistance: 8)
-            .onChanged { value in
-                // Only track horizontal gestures
-                if abs(value.translation.width) > abs(value.translation.height) * 0.6 {
-                    isDragging = true
-                    let raw = value.translation.width
-                    // Damped elastic feel
-                    dragOffset = raw
-                }
-            }
-            .onEnded { value in
-                let translation = value.translation.width
-                let velocity = value.predictedEndTranslation.width
-                let swipeThreshold: CGFloat = 45
-
-                if translation < -swipeThreshold || velocity < -100 {
-                    // Swipe Left -> Next Track (下一首)
-                    withAnimation(.easeOut(duration: 0.20)) {
-                        dragOffset = -discSize * 1.25
-                    }
-                    onNextTrack?()
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
-                        dragOffset = discSize * 1.25
-                        withAnimation(.spring(response: 0.38, dampingFraction: 0.80)) {
-                            dragOffset = 0
-                            isDragging = false
-                        }
-                    }
-                } else if translation > swipeThreshold || velocity > 100 {
-                    // Swipe Right -> Previous Track (上一首)
-                    withAnimation(.easeOut(duration: 0.20)) {
-                        dragOffset = discSize * 1.25
-                    }
-                    onPreviousTrack?()
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
-                        dragOffset = -discSize * 1.25
-                        withAnimation(.spring(response: 0.38, dampingFraction: 0.80)) {
-                            dragOffset = 0
-                            isDragging = false
-                        }
-                    }
-                } else {
-                    // Reset back to center
-                    withAnimation(.spring(response: 0.32, dampingFraction: 0.76)) {
-                        dragOffset = 0
-                        isDragging = false
-                    }
-                }
-            }
-    }
 }
 
 // MARK: - Disc rotation on the layer

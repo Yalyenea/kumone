@@ -23,6 +23,7 @@
 
 ### Improved
 
+- **macOS**: swipe horizontally on the now-playing page or playback bar to change tracks, with directional transitions and dedicated volume adjustment over the volume control; support pointer drags and two-finger trackpad gestures.
 - **macOS**: share one compact playback bar across browsing and now-playing pages, with centered transport controls, visible volume and output controls, and one button for ordered, shuffle and repeat-one modes; AutoMix joins the cycle when enabled.
 - **macOS**: restyle the vinyl player with fine grooves, a slim tonearm, an unobstructed album label and stationary reflections.
 - **macOS**: give the lyrics-page title more space below the window controls and shorten English navigation labels to Recent, Saved and Cloud.
@@ -52,6 +53,7 @@
 
 ### 改进
 
+- **macOS**：播放页和播放器底栏支持左右滑动切歌，加入跟手与定向过渡动画；音量区域内滑动调整音量，支持鼠标拖动和触控板双指滑动。
 - **macOS**：浏览页与播放页共用紧凑底栏，播放控制居中，音量和输出设备直接可见；顺序、随机和单曲循环合为一个切换按钮，启用 AutoMix 时也纳入切换。
 - **macOS**：黑胶播放器采用细密刻纹、纤细唱臂、完整封面和固定反光。
 - **macOS**：歌词页歌名移至窗口按钮下方，增加间距；英文导航名称缩短为 Recent、Saved 和 Cloud。

@@ -24,7 +24,9 @@ struct NowPlayingView: View {
                     pageHeader
                     GeometryReader { content in
                         playbackLayout(size: content.size)
+                            .trackSwipeContent()
                     }
+                    .clipped()
                 }
             }
             .frame(width: geo.size.width, height: geo.size.height)
@@ -38,6 +40,7 @@ struct NowPlayingView: View {
         // close button included — a toolbar's height down from the window top.
         .ignoresSafeArea()
         .preferredColorScheme(.dark)
+        .trackSwipeNavigation()
         .onExitCommand {
             close()
         }
@@ -68,6 +71,7 @@ struct NowPlayingView: View {
             headerBar
             if settings.nowPlayingMode == .lyrics {
                 trackMetaView
+                    .trackSwipeContent()
                     .padding(.horizontal, 32)
                     .padding(.vertical, 12)
             }
@@ -345,12 +349,6 @@ struct NowPlayingView: View {
                     size: size,
                     onTap: {
                         player.togglePlayPause()
-                    },
-                    onNextTrack: {
-                        player.next()
-                    },
-                    onPreviousTrack: {
-                        player.previous()
                     }
                 )
                 .help(player.isPlaying ? "暂停" : "播放")

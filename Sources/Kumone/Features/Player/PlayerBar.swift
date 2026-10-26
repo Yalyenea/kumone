@@ -18,7 +18,9 @@ struct PlayerBar: View {
             ZStack {
                 HStack(spacing: 0) {
                     songInfoSection(compact: compact, diameter: diameter)
+                        .trackSwipeContent(scale: 0.4)
                         .frame(width: sideWidth, alignment: .leading)
+                        .clipped()
                     Spacer(minLength: 0)
                     optionsSection(compact: compact, diameter: diameter,
                                    showsQualityTitle: proxy.size.width >= 1000)
@@ -30,6 +32,7 @@ struct PlayerBar: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(height: Theme.Layout.playerBarHeight)
+        .trackSwipeNavigation()
         .background {
             if !player.showNowPlaying {
                 Platform.windowBackgroundColor
@@ -462,20 +465,30 @@ struct VolumeControl: View {
     var compact = false
     @EnvironmentObject private var player: PlayerService
     @State private var showsVolume = false
+    @State private var dragStartVolume: Float?
 
-    @ViewBuilder
     var body: some View {
-        if compact {
-            // Keep quality, lyrics, output and volume reachable in the narrow bar.
-            PlayerIconButton(icon: volumeIcon, size: 14, diameter: 26) {
-                showsVolume.toggle()
+        Group {
+            if compact {
+                // Keep quality, lyrics, output and volume reachable in the narrow bar.
+                PlayerIconButton(icon: volumeIcon, size: 14, diameter: 26) {
+                    showsVolume.toggle()
+                }
+                .help("音量")
+                .accessibilityLabel("音量")
+                .accessibilityValue("\(Int(player.volume * 100))%")
+                .popover(isPresented: $showsVolume) { inlineVolume.padding(14) }
+            } else {
+                inlineVolume
             }
-            .help("音量")
-            .accessibilityLabel("音量")
-            .accessibilityValue("\(Int(player.volume * 100))%")
-            .popover(isPresented: $showsVolume) { inlineVolume.padding(14) }
-        } else {
-            inlineVolume
+        }
+        .contentShape(Rectangle())
+        .gesture(volumeDrag)
+        .background {
+            GeometryReader { proxy in
+                Color.clear.preference(key: VolumeSwipeBoundsKey.self,
+                                       value: proxy.frame(in: .named(VolumeSwipeBoundsKey.coordinateSpace)))
+            }
         }
     }
 
@@ -511,6 +524,24 @@ struct VolumeControl: View {
             @unknown default: break
             }
         }
+    }
+
+    private var volumeDrag: some Gesture {
+        // Keep the slider's absolute drag; the icon uses a relative slide to
+        // avoid jumping the volume, including in the compact button layout.
+        DragGesture(minimumDistance: 20)
+            .onChanged { value in
+                guard abs(value.translation.width) > abs(value.translation.height) * 1.5 else { return }
+                if dragStartVolume == nil { dragStartVolume = player.volume }
+                if let dragStartVolume {
+                    player.volume = Self.volume(afterSliding: value.translation.width, from: dragStartVolume)
+                }
+            }
+            .onEnded { _ in dragStartVolume = nil }
+    }
+
+    static func volume(afterSliding distance: CGFloat, from volume: Float) -> Float {
+        min(max(volume + Float(distance / 240), 0), 1)
     }
 
     private var volumeIcon: String {

@@ -28,6 +28,7 @@ struct PlayerChromeModifier: ViewModifier {
     @EnvironmentObject private var player: PlayerService
     @EnvironmentObject private var nowPlayingIdle: NowPlayingIdleController
     @Environment(\.colorScheme) private var colorScheme
+    @StateObject private var swipePresentation = TrackSwipePresentation()
     func body(content: Content) -> some View {
         VStack(spacing: 0) {
             content
@@ -39,6 +40,11 @@ struct PlayerChromeModifier: ViewModifier {
                 .environment(\.colorScheme, player.showNowPlaying ? .dark : colorScheme)
                 .hiddenDuringCleanPlayback(nowPlayingIdle.isClean && !nowPlayingIdle.isPreviewingTransport)
         }
+        .environmentObject(swipePresentation)
+        .onChange(of: player.currentTrack?.id) { _, _ in
+            swipePresentation.trackDidChange()
+        }
+        .onDisappear { swipePresentation.reset() }
         .animation(AppAnimation.standard, value: player.activePanel)
     }
 
