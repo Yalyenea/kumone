@@ -266,7 +266,7 @@ final class MarqueeTextView: PlatformView {
     /// Access the backing layer after enabling layer-backed rendering.
     private var hostLayer: CALayer? { layer }
 
-    init(text: String, fontSize: CGFloat, weight: PlatformFont.Weight) {
+    init(text: String, fontSize: CGFloat, weight: PlatformFont.Weight, foregroundColor: CGColor) {
         self.text = text
         self.fontSize = fontSize
         self.weight = weight
@@ -283,13 +283,16 @@ final class MarqueeTextView: PlatformView {
             textLayer.truncationMode = .none
             textLayer.isWrapped = false
         }
+        applyForegroundColor(foregroundColor)
         applyText()
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
-    func update(text: String, fontSize: CGFloat, weight: PlatformFont.Weight) {
+    func update(text: String, fontSize: CGFloat, weight: PlatformFont.Weight, foregroundColor: CGColor) {
+        // Theme changes must reach both copies even when the title is unchanged.
+        applyForegroundColor(foregroundColor)
         guard text != self.text || fontSize != self.fontSize || weight != self.weight else { return }
         self.text = text
         self.fontSize = fontSize
@@ -300,8 +303,13 @@ final class MarqueeTextView: PlatformView {
 
     private var font: PlatformFont { .systemFont(ofSize: fontSize, weight: weight) }
 
-    private var labelColor: CGColor {
-        return NSColor.labelColor.cgColor
+    private func applyForegroundColor(_ color: CGColor) {
+        guard first.foregroundColor != color else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        first.foregroundColor = color
+        second.foregroundColor = color
+        CATransaction.commit()
     }
 
     private func applyText() {
@@ -311,7 +319,6 @@ final class MarqueeTextView: PlatformView {
             textLayer.string = text
             textLayer.font = font
             textLayer.fontSize = fontSize
-            textLayer.foregroundColor = labelColor
         }
     }
 
@@ -319,14 +326,6 @@ final class MarqueeTextView: PlatformView {
         super.layout()
         guard bounds.size != laidOutFor else { return }
         relayout()
-    }
-
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        // A CGColor is a snapshot; unlike a dynamic NSColor it won't follow the
-        // appearance on its own.
-        first.foregroundColor = labelColor
-        second.foregroundColor = labelColor
     }
 
     override func viewDidMoveToWindow() {
@@ -395,10 +394,14 @@ final class MarqueeTextView: PlatformView {
         let weight: PlatformFont.Weight
 
         func makeNSView(context: Context) -> MarqueeTextView {
-            MarqueeTextView(text: text, fontSize: fontSize, weight: weight)
+            // The player can use a dark SwiftUI theme inside a light AppKit
+            // window. Resolve here so the layer follows that local theme.
+            MarqueeTextView(text: text, fontSize: fontSize, weight: weight,
+                            foregroundColor: Color.primary.resolve(in: context.environment).cgColor)
         }
         func updateNSView(_ view: MarqueeTextView, context: Context) {
-            view.update(text: text, fontSize: fontSize, weight: weight)
+            view.update(text: text, fontSize: fontSize, weight: weight,
+                        foregroundColor: Color.primary.resolve(in: context.environment).cgColor)
         }
     }
 }
