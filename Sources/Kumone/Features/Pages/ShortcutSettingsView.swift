@@ -109,7 +109,6 @@ extension ShortcutAction {
         case .togglePlayPause: return "playpause"
         case .nextTrack: return "forward.end"
         case .previousTrack: return "backward.end"
-        case .cycleQueueOrder: return "shuffle"
         case .cycleRepeatMode: return "repeat"
         case .toggleLike: return "heart"
         case .toggleLyrics: return "quote.bubble"

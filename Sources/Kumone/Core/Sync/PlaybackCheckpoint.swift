@@ -9,7 +9,6 @@ struct PlaybackQueueSnapshot: Codable, Equatable {
     let playNext: [Track]
     let source: PlaySource
     let shuffled: Bool
-    let automaticOrder: Bool
     let isFM: Bool
 
     init(_ session: PlaybackSession) {
@@ -19,12 +18,12 @@ struct PlaybackQueueSnapshot: Codable, Equatable {
         playNext = session.playNext
         source = session.source
         shuffled = session.shuffled
-        automaticOrder = session.automaticOrder
+
         isFM = session.isFM
     }
 
     func validate() throws {
-        guard !(shuffled && automaticOrder), queue.count == orderedQueue.count else { throw SyncError.invalidRecord }
+        guard queue.count == orderedQueue.count else { throw SyncError.invalidRecord }
         var occurrences: [Int: Int] = [:]
         for track in queue { occurrences[track.id, default: 0] += 1 }
         for track in orderedQueue {
@@ -34,7 +33,7 @@ struct PlaybackQueueSnapshot: Codable, Equatable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case tracks, queue, orderedQueue, playNext, accountID, source, shuffled, automaticOrder, isFM
+        case tracks, queue, orderedQueue, playNext, accountID, source, shuffled, isFM
     }
 
     init(from decoder: Decoder) throws {
@@ -49,7 +48,7 @@ struct PlaybackQueueSnapshot: Codable, Equatable {
         accountID = try c.decodeIfPresent(Int.self, forKey: .accountID)
         source = try c.decode(PlaySource.self, forKey: .source)
         shuffled = try c.decode(Bool.self, forKey: .shuffled)
-        automaticOrder = try c.decode(Bool.self, forKey: .automaticOrder)
+
         isFM = try c.decode(Bool.self, forKey: .isFM)
         try validate()
     }
@@ -68,7 +67,7 @@ struct PlaybackQueueSnapshot: Codable, Equatable {
         try c.encodeIfPresent(accountID, forKey: .accountID)
         try c.encode(source, forKey: .source)
         try c.encode(shuffled, forKey: .shuffled)
-        try c.encode(automaticOrder, forKey: .automaticOrder)
+
         try c.encode(isFM, forKey: .isFM)
     }
 }
@@ -106,7 +105,7 @@ struct PlaybackCheckpoint: Codable {
         return PlaybackSession(accountID: queue.accountID, queue: queue.queue, orderedQueue: queue.orderedQueue,
                                currentIndex: currentIndex, currentTrack: currentTrack, playNext: queue.playNext,
                                source: queue.source, repeatMode: repeatMode, shuffled: queue.shuffled,
-                               automaticOrder: queue.automaticOrder, isFM: queue.isFM, progress: progress)
+                               isFM: queue.isFM, progress: progress)
     }
 }
 

@@ -165,7 +165,7 @@ struct SyncTests {
         let track = try JSONDecoder().decode(Track.self, from: Data("{\"id\":1}".utf8))
         let session = PlaybackSession(accountID: 42, queue: [track], orderedQueue: [track],
                                       currentIndex: 0, currentTrack: track, playNext: [], source: .none,
-                                      repeatMode: "off", shuffled: false, automaticOrder: false, isFM: false, progress: 20)
+                                      repeatMode: "off", shuffled: false, isFM: false, progress: 20)
         try await repository.writePlayback(SyncRecord(revision: .init(counter: 1, deviceID: remote),
                                                        deviceName: "Fixture", payload: session), connectionID: connection)
         let login = SyncedLogin(accountID: 42, nickname: "Fixture", cookies: ["MUSIC_U": "synthetic-session"])
@@ -208,7 +208,7 @@ struct SyncTests {
         let track = try JSONDecoder().decode(Track.self, from: Data("{\"id\":1}".utf8))
         var session = PlaybackSession(accountID: sessionAccountID, queue: [track], orderedQueue: [track],
                                       currentIndex: 0, currentTrack: track, playNext: [], source: .none,
-                                      repeatMode: "off", shuffled: false, automaticOrder: false, isFM: false, progress: 20)
+                                      repeatMode: "off", shuffled: false, isFM: false, progress: 20)
         var currentAccount = accountID
         let service = SyncService(defaults: defaults, deviceIdentity: { device }, playbackContext: { (session, currentAccount) })
         await service.connect(to: root)
@@ -223,7 +223,7 @@ struct SyncTests {
         currentAccount = 42
         session = PlaybackSession(accountID: 42, queue: [track], orderedQueue: [track],
                                   currentIndex: 0, currentTrack: track, playNext: [], source: .none,
-                                  repeatMode: "off", shuffled: false, automaticOrder: false, isFM: false, progress: 30)
+                                  repeatMode: "off", shuffled: false, isFM: false, progress: 30)
         await service.synchronizeNow(refreshing: [])
         let published = try JSONDecoder().decode(SyncRecord<PlaybackCheckpoint>.self, from: Data(contentsOf: file))
         #expect(published.payload?.progress == 30)
@@ -416,7 +416,7 @@ struct SyncTests {
         let track = try JSONDecoder().decode(Track.self, from: Data("{\"id\":1}".utf8))
         let session = PlaybackSession(accountID: 42, queue: [track], orderedQueue: [track],
                                       currentIndex: 0, currentTrack: track, playNext: [], source: .none,
-                                      repeatMode: "off", shuffled: false, automaticOrder: false, isFM: false, progress: 10)
+                                      repeatMode: "off", shuffled: false, isFM: false, progress: 10)
         for device in [local, remote] {
             try await repository.writePlayback(SyncRecord(revision: .init(counter: 50, deviceID: device),
                                                            deviceName: "Fixture", payload: session), connectionID: connection)
@@ -507,7 +507,7 @@ struct SyncTests {
         let track = try JSONDecoder().decode(Track.self, from: Data("{\"id\":1,\"name\":\"Fixture\"}".utf8))
         let session = PlaybackSession(accountID: 42, queue: [track], orderedQueue: [track],
                                       currentIndex: 0, currentTrack: track, playNext: [], source: .none,
-                                      repeatMode: "off", shuffled: false, automaticOrder: false, isFM: false, progress: 0)
+                                      repeatMode: "off", shuffled: false, isFM: false, progress: 0)
         for device in [identity, remote] {
             try await repository.writePlayback(SyncRecord(revision: .init(counter: 9, deviceID: device),
                                                            deviceName: "iPhone", payload: session), connectionID: connection)
@@ -595,7 +595,7 @@ struct SyncTests {
         let track = try JSONDecoder().decode(Track.self, from: Data("{\"id\":1}".utf8))
         let session = PlaybackSession(accountID: 42, queue: [track], orderedQueue: [track],
                                       currentIndex: 0, currentTrack: track, playNext: [], source: .none,
-                                      repeatMode: "off", shuffled: false, automaticOrder: false, isFM: false, progress: 10)
+                                      repeatMode: "off", shuffled: false, isFM: false, progress: 10)
         let preferences = SyncedPreferences(fields: ["future-option": .init(value: .boolean(true), revision: revision)])
         let preferenceRecord = SyncRecord(revision: revision, deviceName: "Remote", payload: preferences)
         let playbackRecord = SyncRecord(revision: revision, deviceName: "Remote", payload: session)
@@ -702,7 +702,7 @@ struct SyncTests {
         let track = try JSONDecoder().decode(Track.self, from: Data("{\"id\":1}".utf8))
         let session = PlaybackSession(accountID: 42, queue: [track], orderedQueue: [track], currentIndex: 0,
                                       currentTrack: track, playNext: [], source: .none, repeatMode: "off",
-                                      shuffled: false, automaticOrder: false, isFM: false, progress: 20)
+                                      shuffled: false, isFM: false, progress: 20)
         var playbackReads = 0
         let service = SyncService(defaults: defaults, deviceIdentity: { device }, playbackContext: {
             playbackReads += 1
@@ -940,7 +940,7 @@ struct SyncTests {
         let next = try JSONDecoder().decode(Track.self, from: Data("{\"id\":2,\"name\":\"Next\"}".utf8))
         let session = PlaybackSession(accountID: 42, queue: [track, track], orderedQueue: [track, track],
                                       currentIndex: 1, currentTrack: next, playNext: [next], source: .playlist(7),
-                                      repeatMode: "all", shuffled: true, automaticOrder: false, isFM: false, progress: 95)
+                                      repeatMode: "all", shuffled: true, isFM: false, progress: 95)
         try session.validate()
         let restored = try JSONDecoder().decode(PlaybackSession.self, from: JSONEncoder().encode(session))
         #expect(restored == session)
@@ -954,7 +954,7 @@ struct SyncTests {
         let session = PlaybackSession(accountID: 42, queue: [first, first, variant],
                                       orderedQueue: [variant, first, first], currentIndex: 2,
                                       currentTrack: outside, playNext: [outside, first, outside], source: .none,
-                                      repeatMode: "off", shuffled: true, automaticOrder: false, isFM: true, progress: 32)
+                                      repeatMode: "off", shuffled: true, isFM: true, progress: 32)
         let data = try JSONEncoder().encode(session)
         let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
         #expect((object["tracks"] as? [[String: Any]])?.count == 3)
@@ -972,7 +972,7 @@ struct SyncTests {
         let track = try JSONDecoder().decode(Track.self, from: Data("{\"id\":1}".utf8))
         let session = PlaybackSession(accountID: 42, queue: [track], orderedQueue: [track],
                                       currentIndex: 0, currentTrack: track, playNext: [], source: .none,
-                                      repeatMode: "off", shuffled: false, automaticOrder: false, isFM: false, progress: 0)
+                                      repeatMode: "off", shuffled: false, isFM: false, progress: 0)
         let encoded = try JSONEncoder().encode(session)
         for reference in [-1, 1] {
             var object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
@@ -1016,17 +1016,17 @@ struct SyncTests {
         let privateTrack = try JSONDecoder().decode(Track.self, from: Data("{\"id\":2,\"name\":\"Private\",\"pc\":{}}".utf8))
         let publicSession = PlaybackSession(accountID: 42, queue: [publicTrack], orderedQueue: [publicTrack],
                                             currentIndex: 0, currentTrack: publicTrack, playNext: [], source: .none,
-                                            repeatMode: "off", shuffled: false, automaticOrder: false, isFM: false, progress: 0)
+                                            repeatMode: "off", shuffled: false, isFM: false, progress: 0)
         let privateSession = PlaybackSession(accountID: 42, queue: [publicTrack], orderedQueue: [publicTrack],
                                              currentIndex: 0, currentTrack: privateTrack, playNext: [], source: .cloud,
-                                             repeatMode: "off", shuffled: false, automaticOrder: false, isFM: false, progress: 0)
+                                             repeatMode: "off", shuffled: false, isFM: false, progress: 0)
         for session in [publicSession, privateSession] {
             if accountID == 42 { try session.validateAccess(accountID: accountID) }
             else { #expect(throws: SyncError.self) { try session.validateAccess(accountID: accountID) } }
         }
         let guestSession = PlaybackSession(accountID: nil, queue: [publicTrack], orderedQueue: [publicTrack],
                                            currentIndex: 0, currentTrack: publicTrack, playNext: [], source: .none,
-                                           repeatMode: "off", shuffled: false, automaticOrder: false, isFM: false, progress: 0)
+                                           repeatMode: "off", shuffled: false, isFM: false, progress: 0)
         #expect(throws: SyncError.self) { try guestSession.validateAccess(accountID: nil) }
     }
 

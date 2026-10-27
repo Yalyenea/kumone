@@ -33,8 +33,7 @@ struct PlaybackRepositoryTests {
         let outside = try JSONDecoder().decode(Track.self, from: Data("{\"id\":99,\"name\":\"Outside\"}".utf8))
         return PlaybackSession(accountID: accountID, queue: tracks, orderedQueue: tracks.reversed(),
                                currentIndex: count - 1, currentTrack: outside, playNext: [outside, outside],
-                               source: .playlist(7), repeatMode: repeatMode, shuffled: true,
-                               automaticOrder: false, isFM: false, progress: progress)
+                               source: .playlist(7), repeatMode: repeatMode, shuffled: true, isFM: false, progress: progress)
     }
 
     @Test func decodedCacheDetectsReplacementInPlaceEditsDeletionAndReconnect() async throws {
@@ -320,7 +319,7 @@ struct PlaybackRepositoryTests {
         _ = try await repository.restore(bookmark: bookmark, connectionID: connection)
         let invalid = PlaybackSession(accountID: value.accountID, queue: value.queue, orderedQueue: [], currentIndex: -1,
                                        currentTrack: value.currentTrack, playNext: [], source: value.source,
-                                       repeatMode: value.repeatMode, shuffled: false, automaticOrder: false,
+                                       repeatMode: value.repeatMode, shuffled: false,
                                        isFM: false, progress: 0)
         await #expect(throws: SyncError.invalidRecord) {
             try await repository.writePlayback(SyncRecord(revision: .init(counter: 2, deviceID: device),

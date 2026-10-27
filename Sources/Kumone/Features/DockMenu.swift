@@ -34,8 +34,7 @@ final class DockMenu: NSObject, NSMenuDelegate {
                                   action: nil, keyEquivalent: "")
         let modeMenu = NSMenu()
         modeMenu.autoenablesItems = false
-        for mode in PlaybackMode.allCases
-        where mode != .autoMix || player.autoMixOrderAvailable {
+        for mode in PlaybackMode.allCases {
             let item = add(to: modeMenu, title: mode.displayName,
                            action: #selector(setPlaybackMode(_:)), enabled: !player.isFMMode)
             item.representedObject = mode.rawValue

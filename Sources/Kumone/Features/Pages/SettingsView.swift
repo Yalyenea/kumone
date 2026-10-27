@@ -151,13 +151,39 @@ struct SettingsView: View {
                     case .vip: settingsHint("黑胶 SVIP 可用超清母带与空间音频。")
                     case .svip: settingsHint("实际音质取决于歌曲资源与输出设备。")
                     }
-                    if account.playbackQuality.usesNativePlayback && settings.automixEnabled {
-                        settingsHint("高解析与空间音频使用原生播放，暂停 AutoMix 混音。")
-                    }
                 }
                 .task { await account.refreshMembership() }
 
-                AutoMixSettingsSection()
+                Section("AI 调音大师") {
+                    Toggle("启用 AI 调音", isOn: Binding(
+                        get: { settings.aiSoundEffectEnabled },
+                        set: { player.setAISoundEffectEnabled($0) }
+                    ))
+                    .disabled(account.membershipTier != .svip && !settings.aiSoundEffectEnabled)
+                    if account.membershipTier != .svip {
+                        settingsHint("需要黑胶 SVIP")
+                    } else if settings.aiSoundEffectEnabled {
+                        LabeledContent("调音状态", value: player.aiSoundEffectState.displayName)
+                        HStack {
+                            Text("调音强度")
+                            Spacer(minLength: 12)
+                            Slider(value: Binding(
+                                get: { settings.aiSoundEffectStrength },
+                                set: { player.setAISoundEffectStrength($0) }
+                            ), in: 0...1, step: 0.05)
+                            .frame(maxWidth: 180)
+                            .accessibilityLabel("调音强度")
+                            Text(settings.aiSoundEffectStrength, format: .percent.precision(.fractionLength(0)))
+                                .monospacedDigit()
+                                .frame(width: 42, alignment: .trailing)
+                        }
+                        if player.aiSoundEffectState == .failed {
+                            Button("重试调音") { player.refreshAISoundEffect(retry: true) }
+                        }
+                    }
+                    settingsHint("使用官方逐曲均衡曲线，保留源采样率。混响与空间增强暂不支持。")
+                    settingsHint("耳机已设置均衡器时，可降低调音强度后对比试听。")
+                }
             }
             .formStyle(.grouped)
 

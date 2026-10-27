@@ -12,7 +12,6 @@ struct PlaybackSession: Codable, Equatable {
     let source: PlaySource
     let repeatMode: String
     let shuffled: Bool
-    let automaticOrder: Bool
     let isFM: Bool
     let progress: TimeInterval
 
@@ -47,7 +46,6 @@ extension PlaybackSession {
         let source: PlaySource
         let repeatMode: String
         let shuffled: Bool
-        let automaticOrder: Bool
         let isFM: Bool
         let progress: TimeInterval
     }
@@ -61,7 +59,7 @@ extension PlaybackSession {
                   currentTrack: try snapshot.tracks.referencedTrack(at: snapshot.currentTrack),
                   playNext: try snapshot.playNext.map { try snapshot.tracks.referencedTrack(at: $0) },
                   source: snapshot.source, repeatMode: snapshot.repeatMode,
-                  shuffled: snapshot.shuffled, automaticOrder: snapshot.automaticOrder,
+                  shuffled: snapshot.shuffled,
                   isFM: snapshot.isFM, progress: snapshot.progress)
         try validate()
     }
@@ -76,7 +74,7 @@ extension PlaybackSession {
         try Snapshot(tracks: table.tracks, queue: queue, orderedQueue: orderedQueue,
                      currentTrack: currentTrack, playNext: playNext, accountID: accountID,
                      currentIndex: currentIndex, source: source, repeatMode: repeatMode,
-                     shuffled: shuffled, automaticOrder: automaticOrder, isFM: isFM,
+                     shuffled: shuffled, isFM: isFM,
                      progress: progress).encode(to: encoder)
     }
 }

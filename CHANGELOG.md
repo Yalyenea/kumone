@@ -13,6 +13,7 @@
 
 - **macOS**: add personal profiles with playlists, following, followers, posts, a following feed and listening charts, plus a message center for private-message history, comments, mentions, notifications and unread counts; paged data stays isolated to the signed-in account.
 - **macOS**: expand playback quality choices according to active VIP and SVIP benefits, including Hi-Res, master and spatial formats; use native playback for high-resolution and spatial sources and apply the eligible quality to downloads.
+- **macOS**: add SVIP AI tuning with independently decoded NCAE packages, official per-song 10-band EQ parameters, adjustable strength and account-scoped offline parameter caching; process Hi-Res and master sources at their original sample rate. Official reverb and spatial enhancement are not included.
 
 ### Fixed
 
@@ -24,7 +25,7 @@
 ### Improved
 
 - **macOS**: swipe horizontally on the now-playing page or playback bar to change tracks, with directional transitions and dedicated volume adjustment over the volume control; support pointer drags and two-finger trackpad gestures.
-- **macOS**: share one compact playback bar across browsing and now-playing pages, with centered transport controls, visible volume and output controls, and one button for ordered, shuffle and repeat-one modes; AutoMix joins the cycle when enabled.
+- **macOS**: share one compact playback bar across browsing and now-playing pages, with centered transport controls, visible volume and output controls, and one button for ordered, shuffle and repeat-one modes.
 - **macOS**: restyle the vinyl player with fine grooves, a slim tonearm, an unobstructed album label and stationary reflections.
 - **macOS**: give the lyrics-page title more space below the window controls and shorten English navigation labels to Recent, Saved and Cloud.
 - **macOS**: refine profile and message layouts with compact headers, text tabs, aligned cover grids and quieter list separators; set the main window's minimum width to 760 points.
@@ -36,6 +37,7 @@
 - **macOS**: target Apple Silicon (arm64) exclusively and remove universal-binary assembly from packaging and CI.
 - **macOS**: remove third-party audio-source lookup and its settings, sync fields and cache options; playback and prefetch use NetEase sources.
 - **macOS**: remove system-wide hotkeys and simplify shortcut settings around in-app keyboard actions.
+- **macOS**: remove AutoMix transitions, queue ranking, loudness normalization, background analysis, prerendering and debug tools; simplify playback to one source while preserving ordinary playback, caching and output routing.
 
 ---
 
@@ -43,6 +45,7 @@
 
 - **macOS**：新增个人主页，可查看歌单、关注、粉丝、个人动态、关注动态和听歌排行；新增消息中心，可查看私信历史、评论、提及、通知和未读数量；分页数据按登录账号隔离。
 - **macOS**：根据有效的 VIP、SVIP 权益逐级开放音质选项，覆盖 Hi-Res、母带和空间音频；高解析与空间音源使用原生播放路径，下载也采用账号可用的音质。
+- **macOS**：新增 SVIP AI 调音，独立解码 NCAE 音效包，应用官方逐曲 10 段均衡参数，支持强度调节和按账号缓存离线参数；Hi-Res 与母带按源采样率处理。暂不包含官方混响与空间增强。
 
 ### 修复
 
@@ -54,7 +57,7 @@
 ### 改进
 
 - **macOS**：播放页和播放器底栏支持左右滑动切歌，加入跟手与定向过渡动画；音量区域内滑动调整音量，支持鼠标拖动和触控板双指滑动。
-- **macOS**：浏览页与播放页共用紧凑底栏，播放控制居中，音量和输出设备直接可见；顺序、随机和单曲循环合为一个切换按钮，启用 AutoMix 时也纳入切换。
+- **macOS**：浏览页与播放页共用紧凑底栏，播放控制居中，音量和输出设备直接可见；顺序、随机和单曲循环合为一个切换按钮。
 - **macOS**：黑胶播放器采用细密刻纹、纤细唱臂、完整封面和固定反光。
 - **macOS**：歌词页歌名移至窗口按钮下方，增加间距；英文导航名称缩短为 Recent、Saved 和 Cloud。
 - **macOS**：优化个人页与消息页，采用紧凑资料区、文字标签、对齐的封面网格和简洁分隔线；主窗口最小宽度设为 760。
@@ -66,6 +69,7 @@
 - **macOS**：仅支持 Apple 芯片（arm64），移除打包脚本和 CI 中的双架构构建流程。
 - **macOS**：移除第三方音源查找及相关设置、同步字段和缓存选项，播放与预取使用网易云音源。
 - **macOS**：移除全局快捷键，简化为应用内操作的快捷键设置。
+- **macOS**：移除 AutoMix 自动过渡、队列评分、响度均衡、后台分析、预渲染和调试工具；简化为单音源播放，保留常规播放、缓存和输出路由。
 
 ## 0.3.21 - 2026-10-19
 

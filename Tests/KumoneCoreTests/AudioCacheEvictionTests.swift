@@ -43,7 +43,7 @@ private func exists(_ url: URL) -> Bool {
         #expect(exists(newest))
     }
 
-    /// The oldest file is what a deck is playing (AutoMix candidate prefetches
+    /// The oldest file is the playing source (ordinary prefetches
     /// have made every other file newer). Eviction must pass over it.
     @Test func neverEvictsAFileInUse() async throws {
         let directory = makeDirectory()

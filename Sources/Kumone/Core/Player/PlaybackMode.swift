@@ -4,11 +4,10 @@ import Foundation
 /// and repetition separately. Each selection writes both to avoid a hidden
 /// repeat-one state surviving a switch to shuffle.
 enum PlaybackMode: String, CaseIterable {
-    case ordered, shuffled, repeatOne, autoMix
+    case ordered, shuffled, repeatOne
 
     init(queueOrder: QueueOrder, repeatMode: RepeatMode) {
         if repeatMode == .one { self = .repeatOne }
-        else if queueOrder == .autoMix { self = .autoMix }
         else if queueOrder == .shuffled { self = .shuffled }
         else { self = .ordered }
     }
@@ -17,24 +16,22 @@ enum PlaybackMode: String, CaseIterable {
         switch self {
         case .ordered, .repeatOne: return .listed
         case .shuffled: return .shuffled
-        case .autoMix: return .autoMix
         }
     }
 
     var repeatMode: RepeatMode {
         switch self {
-        case .ordered, .autoMix: return .off
+        case .ordered: return .off
         case .shuffled: return .all
         case .repeatOne: return .one
         }
     }
 
-    func next(autoMixAvailable: Bool) -> Self {
+    func next() -> Self {
         switch self {
         case .ordered: return .shuffled
         case .shuffled: return .repeatOne
-        case .repeatOne: return autoMixAvailable ? .autoMix : .ordered
-        case .autoMix: return .ordered
+        case .repeatOne: return .ordered
         }
     }
 
@@ -43,7 +40,14 @@ enum PlaybackMode: String, CaseIterable {
         case .ordered: return String(localized: "列表顺序")
         case .shuffled: return String(localized: "随机播放")
         case .repeatOne: return String(localized: "单曲循环")
-        case .autoMix: return String(localized: "AutoMix 顺序")
         }
+    }
+}
+
+enum QueueOrder: String, Codable, Sendable, CaseIterable {
+    case listed, shuffled
+
+    init(migratingShuffle enabled: Bool) {
+        self = enabled ? .shuffled : .listed
     }
 }

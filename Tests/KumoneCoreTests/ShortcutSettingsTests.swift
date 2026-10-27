@@ -6,6 +6,29 @@ import Testing
 
 @Suite @MainActor
 struct ShortcutSettingsTests {
+    @Test func removingQueueOrderPreservesCustomAndDisabledBindings() throws {
+        let suite = "kumone-shortcuts-\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let stored = try JSONSerialization.data(withJSONObject: ["app": [
+            "cycleQueueOrder", ["key": "s", "modifiers": 0],
+            "nextTrack", ["key": "n", "modifiers": 4],
+            "toggleLike", ["key": "", "modifiers": 0]
+        ]])
+        defaults.set(stored, forKey: ShortcutManager.bindingsKey)
+
+        let manager = ShortcutManager(userDefaults: defaults)
+        #expect(manager.shortcut(for: .nextTrack) == UserShortcut(key: "n", modifiers: .option))
+        #expect(manager.shortcut(for: .toggleLike) == .unassigned)
+        #expect(!manager.handleKeyEvent(try keyEvent(code: 1, key: "s")))
+
+        try manager.setShortcut(UserShortcut(key: "w", modifiers: []), for: .toggleQueue)
+        let saved = try #require(defaults.data(forKey: ShortcutManager.bindingsKey))
+        #expect(!String(decoding: saved, as: UTF8.self).contains("cycleQueueOrder"))
+        let restored = ShortcutManager(userDefaults: defaults)
+        #expect(restored.appShortcuts == manager.appShortcuts)
+    }
+
     @Test func migratesLegacyBindingsIncludingExplicitlyDisabledDefaults() throws {
         let suite = "kumone-shortcuts-\(UUID())"
         let defaults = try #require(UserDefaults(suiteName: suite))

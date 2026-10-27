@@ -145,39 +145,39 @@ struct NativeAudioPlaybackTests {
         var finished = false
         let events = Task { @MainActor in
             for await event in engine.events {
-                if case .deckFinished(.a) = event { finished = true }
+                if case .finished = event { finished = true }
             }
         }
         defer { events.cancel() }
-        defer { engine.stopAll() }
-        engine.loadNative(from: url, on: .a, duration: 4)
-        #expect(engine.usesNativePlayback(on: .a))
-        engine.play(deck: .a, from: 0)
-        for _ in 0..<100 where engine.position(of: .a) < 0.15 {
+        defer { engine.stop() }
+        engine.loadNative(from: url, duration: 4)
+        #expect(engine.usesNativePlayback)
+        engine.play(from: 0)
+        for _ in 0..<100 where engine.position < 0.15 {
             try await Task.sleep(for: .milliseconds(50))
         }
-        #expect(engine.position(of: .a) >= 0.15)
+        #expect(engine.position >= 0.15)
         engine.pause()
         try await Task.sleep(for: .milliseconds(150))
-        let paused = engine.position(of: .a)
+        let paused = engine.position
         try await Task.sleep(for: .milliseconds(200))
-        #expect(abs(engine.position(of: .a) - paused) < 0.05)
-        engine.seek(deck: .a, to: 2)
+        #expect(abs(engine.position - paused) < 0.05)
+        engine.seek(to: 2)
         try await Task.sleep(for: .milliseconds(200))
-        #expect(abs(engine.position(of: .a) - 2) < 0.05)
+        #expect(abs(engine.position - 2) < 0.05)
         engine.resume()
         try await Task.sleep(for: .milliseconds(300))
-        #expect(engine.position(of: .a) > 2.1)
-        engine.seek(deck: .a, to: 3.8)
+        #expect(engine.position > 2.1)
+        engine.seek(to: 3.8)
         for _ in 0..<60 where !finished { try await Task.sleep(for: .milliseconds(50)) }
         #expect(finished)
-        engine.stop(deck: .a)
-        #expect(!engine.usesNativePlayback(on: .a))
-        _ = try engine.loadFile(at: url, on: .a)
-        #expect(!engine.usesNativePlayback(on: .a))
-        engine.play(deck: .a, from: 0)
+        engine.stop()
+        #expect(!engine.usesNativePlayback)
+        _ = try engine.loadFile(at: url)
+        #expect(!engine.usesNativePlayback)
+        engine.play(from: 0)
         try await Task.sleep(for: .milliseconds(250))
-        #expect(engine.position(of: .a) > 0)
+        #expect(engine.position > 0)
     }
 
     @Test @MainActor func undecodableNativeSourceReportsFailure() async throws {
@@ -186,14 +186,14 @@ struct NativeAudioPlaybackTests {
         var failed = false
         let events = Task { @MainActor in
             for await event in engine.events {
-                if case .streamFailed(.a, _) = event { failed = true }
+                if case .streamFailed(_) = event { failed = true }
             }
         }
-        defer { events.cancel(); engine.stopAll() }
+        defer { events.cancel(); engine.stop() }
         let url = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
             .appendingPathComponent(".tmp/nonexistent-\(UUID()).flac")
-        engine.loadNative(from: url, on: .a, duration: 3)
-        engine.play(deck: .a, from: 0)
+        engine.loadNative(from: url, duration: 3)
+        engine.play(from: 0)
         for _ in 0..<60 where !failed { try await Task.sleep(for: .milliseconds(50)) }
         #expect(failed)
     }

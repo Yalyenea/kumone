@@ -190,9 +190,5 @@ struct ProgressiveLoaderFLACTests {
                                     channels: 1, interleaved: false)!
             #expect(AVAudioConverter(from: f.processingFormat, to: dst) != nil)
         }
-        // And the real prefetch-analysis path over the same FLAC file.
-        let analysis = try TrackAnalyzer.analyze(fileAt: flac)
-        #expect(analysis.duration > 5.5 && analysis.duration < 6.5,
-                "analysis duration \(analysis.duration) should be ≈6s")
     }
 }

@@ -31,7 +31,6 @@
 "下一首" = "Next";
 "上一首" = "Previous";
 "随机播放" = "Shuffle";
-"AutoMix 顺序" = "AutoMix Order";
 "列表顺序" = "List Order";
 "播放顺序" = "Play Order";
 "循环模式" = "Repeat Mode";
@@ -324,12 +323,6 @@
 "关闭播放页" = "Close Now Playing";
 "无法读取快捷键，暂用默认设置" = "Cannot read shortcuts; using defaults for now";
 
-/* AutoMix settings (macOS) */
-"让歌曲丝滑衔接，让听感更流畅" = "Seamless transitions for smoother listening";
-"自动过渡" = "Automatic Transitions";
-"智能顺序" = "Smart Order";
-"按歌曲契合度排序，会增加网络用量。" = "Orders songs for a better match; uses more data.";
-"响度均衡" = "Normalize Loudness";
 "下载" = "Download";
 
 /* Liked playlist search and sorting */
@@ -511,7 +504,6 @@
 "黑胶 VIP 可用无损、Hi-Res 与高清臻音。" = "VIP includes lossless, Hi-Res and premium audio.";
 "黑胶 SVIP 可用超清母带与空间音频。" = "SVIP includes master and spatial audio.";
 "实际音质取决于歌曲资源与输出设备。" = "Actual quality depends on the track and output device.";
-"高解析与空间音频使用原生播放，暂停 AutoMix 混音。" = "High-resolution and spatial audio use native playback. AutoMix mixing is paused.";
 "此音质需要更高的会员权益" = "This quality requires a higher membership tier.";
 "会员权益已更新，播放音质已调整为极高" = "Membership updated. Playback quality changed to High.";
 "所选音源播放失败，请尝试其他音质或输出设备" = "Unable to play this source. Try another quality or output device.";
@@ -589,3 +581,20 @@
 "歌单收到互动" = "Activity on your playlist";
 "后退" = "Back";
 "前进" = "Forward";
+
+// AI sound effects
+"AI 调音大师" = "AI Audio Master";
+"启用 AI 调音" = "Enable AI tuning";
+"需要黑胶 SVIP" = "Requires SVIP";
+"播放后自动加载调音" = "Tuning loads when playback starts";
+"正在加载调音…" = "Loading tuning…";
+"官方均衡曲线已应用" = "Official EQ curve applied";
+"这首歌暂无 AI 调音" = "AI tuning is unavailable for this song";
+"空间音质暂不支持 AI 调音" = "AI tuning is unavailable for spatial audio";
+"调音加载失败，可点击重试" = "Tuning could not load. Try again.";
+"调音状态" = "Tuning status";
+"调音强度" = "Tuning strength";
+"重试调音" = "Retry tuning";
+"使用官方逐曲均衡曲线，保留源采样率。混响与空间增强暂不支持。" = "Uses official per-song EQ curves at the source sample rate. Reverb and spatial enhancement are not supported yet.";
+"耳机已设置均衡器时，可降低调音强度后对比试听。" = "If your headphones already use EQ, try a lower tuning strength and compare.";
+"联网后可加载这首歌的调音" = "Connect to load tuning for this song";

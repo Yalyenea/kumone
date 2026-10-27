@@ -88,7 +88,6 @@ public enum ShortcutAction: String, Codable, CaseIterable, Identifiable, Hashabl
     case togglePlayPause
     case nextTrack
     case previousTrack
-    case cycleQueueOrder
     case cycleRepeatMode
     case toggleLike
     case toggleLyrics
@@ -104,7 +103,6 @@ public enum ShortcutAction: String, Codable, CaseIterable, Identifiable, Hashabl
         case .togglePlayPause: return String(localized: "播放 / 暂停")
         case .nextTrack: return String(localized: "下一首")
         case .previousTrack: return String(localized: "上一首")
-        case .cycleQueueOrder: return String(localized: "播放顺序")
         case .cycleRepeatMode: return String(localized: "播放模式")
         case .toggleLike: return String(localized: "喜欢")
         case .toggleLyrics: return String(localized: "歌词")
@@ -120,7 +118,6 @@ public enum ShortcutAction: String, Codable, CaseIterable, Identifiable, Hashabl
         case .togglePlayPause: return UserShortcut(key: " ", modifiers: [])
         case .nextTrack: return UserShortcut(key: "\u{F703}", modifiers: [.command])
         case .previousTrack: return UserShortcut(key: "\u{F702}", modifiers: [.command])
-        case .cycleQueueOrder: return UserShortcut(key: "s", modifiers: [.command, .shift])
         case .cycleRepeatMode: return UserShortcut(key: "r", modifiers: [.command, .shift])
         case .toggleLike: return UserShortcut(key: "l", modifiers: [.command, .shift])
         case .toggleLyrics: return UserShortcut(key: "l", modifiers: [.command])
@@ -134,6 +131,30 @@ public enum ShortcutAction: String, Codable, CaseIterable, Identifiable, Hashabl
 
 private struct ShortcutBindings: Codable, Equatable {
     var app: [ShortcutAction: UserShortcut]
+
+    private enum CodingKeys: CodingKey { case app }
+
+    init(app: [ShortcutAction: UserShortcut]) {
+        self.app = app
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        var entries = try container.nestedUnkeyedContainer(forKey: .app)
+        app = [:]
+        // Enum-keyed dictionaries encode as alternating key/value pairs. Discard only
+        // the removed action so its old binding cannot invalidate the remaining keys.
+        while !entries.isAtEnd {
+            let rawAction = try entries.decode(String.self)
+            let shortcut = try entries.decode(UserShortcut.self)
+            guard rawAction != "cycleQueueOrder" else { continue }
+            guard let action = ShortcutAction(rawValue: rawAction) else {
+                throw DecodingError.dataCorruptedError(in: entries,
+                    debugDescription: "Unknown shortcut action: \(rawAction)")
+            }
+            app[action] = shortcut
+        }
+    }
 
     static var defaults: Self {
         Self(app: Dictionary(uniqueKeysWithValues: ShortcutAction.allCases.map { ($0, $0.defaultShortcut) }))
@@ -242,8 +263,6 @@ final class ShortcutManager: ObservableObject {
                 player.next()
             case .previousTrack:
                 player.previous()
-            case .cycleQueueOrder:
-                player.cycleQueueOrder()
             case .cycleRepeatMode:
                 player.cyclePlaybackMode()
             case .toggleLike:

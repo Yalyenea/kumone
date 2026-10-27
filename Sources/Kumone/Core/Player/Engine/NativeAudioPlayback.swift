@@ -2,13 +2,12 @@ import AVFoundation
 import Foundation
 
 /// Serialized on PlaybackEngine's queue. AVPlayer keeps high-resolution and
-/// spatial sources out of the stereo AutoMix graph and lets macOS render the
+/// spatial sources in their native format and lets macOS render the
 /// source for the selected output device.
 final class NativeAudioPlayback: @unchecked Sendable {
     private let player: AVPlayer
     private let item: AVPlayerItem
     private let queue: DispatchQueue
-    private let deck: Deck
     private let onEvent: @Sendable (PlaybackEngineEvent) -> Void
     private var observations: [NSKeyValueObservation] = []
     private var notifications: [NSObjectProtocol] = []
@@ -19,10 +18,9 @@ final class NativeAudioPlayback: @unchecked Sendable {
     private var seekPosition: Double = 0
     private let expectedDuration: Double
 
-    init(url: URL, duration: Double, deck: Deck, volume: Float, outputDeviceUID: String?,
+    init(url: URL, duration: Double, volume: Float, outputDeviceUID: String?,
          queue: DispatchQueue, onEvent: @escaping @Sendable (PlaybackEngineEvent) -> Void) {
         self.queue = queue
-        self.deck = deck
         self.onEvent = onEvent
         expectedDuration = duration
         item = AVPlayerItem(url: url)
@@ -34,12 +32,12 @@ final class NativeAudioPlayback: @unchecked Sendable {
             item.observe(\.status, options: [.initial, .new]) { [weak self] item, _ in
                 guard item.status == .failed else { return }
                 let error = item.error ?? URLError(.cannotDecodeContentData)
-                self?.deliver(.streamFailed(deck, error))
+                self?.deliver(.streamFailed(error))
             },
             player.observe(\.timeControlStatus, options: [.new]) { [weak self] player, _ in
                 switch player.timeControlStatus {
-                case .waitingToPlayAtSpecifiedRate: self?.deliver(.streamStalled(deck))
-                case .playing: self?.deliver(.streamResumed(deck))
+                case .waitingToPlayAtSpecifiedRate: self?.deliver(.streamStalled)
+                case .playing: self?.deliver(.streamResumed)
                 default: break
                 }
             }
@@ -47,12 +45,12 @@ final class NativeAudioPlayback: @unchecked Sendable {
         let center = NotificationCenter.default
         notifications = [
             center.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: nil) { [weak self] _ in
-                self?.deliver(.deckFinished(deck))
+                self?.deliver(.finished)
             },
             center.addObserver(forName: .AVPlayerItemFailedToPlayToEndTime, object: item, queue: nil) { [weak self] note in
                 let error = note.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error
                     ?? URLError(.cannotDecodeContentData)
-                self?.deliver(.streamFailed(deck, error))
+                self?.deliver(.streamFailed(error))
             }
         ]
     }

@@ -2,20 +2,15 @@ import Testing
 @testable import KumoneCore
 
 @Suite struct PlaybackModeTests {
-    @Test func cycleWithoutAutoMixVisitsEveryStandardModeOnce() {
+    @Test func cycleVisitsEveryModeOnce() {
         var mode = PlaybackMode.ordered
         var visited: [PlaybackMode] = []
         for _ in 0..<3 {
             visited.append(mode)
-            mode = mode.next(autoMixAvailable: false)
+            mode = mode.next()
         }
         #expect(visited == [.ordered, .shuffled, .repeatOne])
         #expect(mode == .ordered)
-    }
-
-    @Test func autoMixOnlyJoinsWhenAvailable() {
-        #expect(PlaybackMode.repeatOne.next(autoMixAvailable: true) == .autoMix)
-        #expect(PlaybackMode.autoMix.next(autoMixAvailable: false) == .ordered)
     }
 
     @Test(arguments: PlaybackMode.allCases)
@@ -26,7 +21,7 @@ import Testing
     @Test func leavingSingleRepeatClearsItEvenAfterRestoringAShuffledSession() {
         let restored = PlaybackMode(queueOrder: .shuffled, repeatMode: .one)
         #expect(restored == .repeatOne)
-        let next = restored.next(autoMixAvailable: false)
+        let next = restored.next()
         #expect(next.queueOrder == .listed)
         #expect(next.repeatMode == .off)
         #expect(PlaybackMode.shuffled.repeatMode == .all)

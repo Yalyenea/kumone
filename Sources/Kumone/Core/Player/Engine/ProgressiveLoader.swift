@@ -56,13 +56,9 @@ final class ProgressiveLoader: NSObject, @unchecked Sendable {
     /// contiguous copy of the file, closed and safe to commit — reported the
     /// moment the last byte lands, **not** when parsing catches up.
     ///
-    /// The two are minutes apart on a normal track: the engine's backpressure
-    /// suspends *decoding* once enough PCM is queued, so a fast transfer sits
-    /// in `backlog` and is parsed at playback speed. Tying the cache commit to
-    /// `onCompleted` made the whole file unusable — no analysis, no AutoMix
-    /// pick, no candidate downloads — until the song was nearly over, which is
-    /// why the first track of every freshly started playlist never got an
-    /// analysis. Fires at most once, never after a seek abandoned the mirror.
+    /// Decoding may trail the network because playback applies backpressure.
+    /// Commit the cache as soon as its complete file exists. Fires once, never
+    /// after a seek has abandoned the mirror.
     var onMirrorCompleted: ((_ bytes: Int64) -> Void)?
     var onError: ((Error) -> Void)?
 

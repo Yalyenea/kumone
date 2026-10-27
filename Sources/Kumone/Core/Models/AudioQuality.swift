@@ -74,7 +74,7 @@ enum AudioQuality: String, CaseIterable, Identifiable {
     var isSpatial: Bool { [.sky, .dolby, .vivid].contains(self) }
 
     /// AVPlayer preserves the source's high sample rate and spatial metadata;
-    /// the AutoMix graph is intentionally fixed at stereo / 44.1 kHz.
+    /// the PCM streaming graph uses stereo / 44.1 kHz.
     var usesNativePlayback: Bool { [.hires, .jyeffect, .jymaster, .sky, .dolby, .vivid].contains(self) }
 
     /// Enhanced and spatial editions are distinct mixes. A menu's order must

@@ -2,11 +2,7 @@ import Foundation
 import os
 
 /// Disk cache for full song audio, with LRU eviction by file mtime and
-/// in-flight download coalescing. See docs/automix-spec.md §3.
-///
-/// Track analyses belong to `AnalysisStore`, which lives outside this cache
-/// precisely so that evicting or clearing audio does not throw away the
-/// expensive part.
+/// in-flight download coalescing.
 actor EngineAudioCache {
     static let shared = EngineAudioCache()
 
@@ -18,9 +14,7 @@ actor EngineAudioCache {
     }
 
     private static let partSuffix = ".part"
-    /// Timed lyrics, written by `LyricsSidecar` for the hand-over picker. It
-    /// *replaces* the audio extension (the `.lrc` convention
-    /// `Audition.Lyrics` reads), so it needs its own path math.
+    /// Include old lyric sidecars when evicting their cached audio.
     private static let lyricsExtension = "lrc"
 
     /// A `.part` touched within this long is a live progressive write and is
@@ -170,11 +164,7 @@ actor EngineAudioCache {
 
     // MARK: - In use
 
-    /// Replace the set of cached files playback has open: both decks' loaded
-    /// files, plus the armed next track and the current one's complete file,
-    /// which transition pre-renders and seeks re-open by path. Eviction never
-    /// deletes these, however stale their mtime — AutoMix candidate prefetches
-    /// touch many files, so LRU order alone does not keep a playing file safe.
+    /// Protect the current source and prefetched file from LRU eviction.
     nonisolated func setFilesInUse(_ urls: some Sequence<URL>) {
         let paths = Set(urls.map(Self.identity))
         inUse.withLock { $0 = paths }

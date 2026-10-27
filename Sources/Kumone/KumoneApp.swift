@@ -9,7 +9,6 @@ public struct KumoneApp: App {
     @StateObject private var settings = SettingsManager.shared
     @StateObject private var toasts = ToastCenter.shared
     @StateObject private var shortcuts = ShortcutManager.shared
-    @Environment(\.openWindow) private var openWindow
 
     public init() {}
 
@@ -45,11 +44,6 @@ public struct KumoneApp: App {
 
                 Divider()
 
-                // One shortcut for the whole queue-order cycle, like the button
-                // it mirrors: ⇧⌘S walks 列表 → 随机 → AutoMix → 列表, and the
-                // third stop is simply absent where it could do nothing.
-                Button("播放顺序") { player.cycleQueueOrder() }
-                    .keyboardShortcut(shortcuts.shortcut(for: .cycleQueueOrder).keyboardShortcut)
                 Button("播放模式") { player.cyclePlaybackMode() }
                     .keyboardShortcut(shortcuts.shortcut(for: .cycleRepeatMode).keyboardShortcut)
 
@@ -78,30 +72,7 @@ public struct KumoneApp: App {
                 .keyboardShortcut(shortcuts.shortcut(for: .toggleQueue).keyboardShortcut)
             }
 
-            #if DEBUG
-            // Developer tooling, DEBUG builds only (`Scripts/build-app.sh`
-            // defaults to debug, so the listening machine still gets it).
-            // Inert until opened — see `AutoMixDebugModel`.
-            CommandMenu(AutoMixDebugPanel.menuTitle) {
-                Button {
-                    openWindow(id: AutoMixDebugPanel.windowID)
-                } label: {
-                    Text(verbatim: "AutoMix Debug")
-                }
-                .keyboardShortcut("d", modifiers: [.command, .shift])
-            }
-            #endif
         }
-
-        #if DEBUG
-        Window(AutoMixDebugPanel.windowTitle, id: AutoMixDebugPanel.windowID) {
-            AutoMixDebugPanel()
-                .scrollIndicators(.never)
-                .preferredColorScheme(settings.appearance.colorScheme)
-        }
-        .defaultSize(width: 460, height: 620)
-        .windowResizability(.contentMinSize)
-        #endif
 
         Settings {
             SettingsView()

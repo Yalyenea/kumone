@@ -98,7 +98,7 @@ final class SyncService: ObservableObject {
                 Task { await self?.disconnectChangedIdentity() }
             }.store(in: &subscriptions)
         let player = PlayerService.shared
-        var playbackChanges = [
+        let playbackChanges = [
             player.$currentTrack.map { _ in () }.eraseToAnyPublisher(),
             player.$queue.map { _ in () }.eraseToAnyPublisher(),
             player.$shuffledQueue.map { _ in () }.eraseToAnyPublisher(),
@@ -107,9 +107,8 @@ final class SyncService: ObservableObject {
             player.$source.map { _ in () }.eraseToAnyPublisher(),
             player.$repeatMode.removeDuplicates().map { _ in () }.eraseToAnyPublisher(),
             player.$isFMMode.removeDuplicates().map { _ in () }.eraseToAnyPublisher(),
+            player.$queueOrder.removeDuplicates().map { _ in () }.eraseToAnyPublisher(),
         ]
-            playbackChanges.append(player.$queueOrder.removeDuplicates().map { _ in () }.eraseToAnyPublisher())
-            playbackChanges.append(player.$autoMixQueue.map { _ in () }.eraseToAnyPublisher())
         let account = AccountStore.shared
         Publishers.MergeMany(playbackChanges).sink { [weak self] in
             self?.scheduleSync(SyncRequest(publicationDomains: [.playback]))

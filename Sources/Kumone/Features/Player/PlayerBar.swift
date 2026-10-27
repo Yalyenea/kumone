@@ -170,6 +170,20 @@ struct PlayerBar: View {
                 Divider()
                 Text("当前音质：\(quality.displayName)")
             }
+            Divider()
+            Toggle("AI 调音大师", isOn: Binding(
+                get: { settings.aiSoundEffectEnabled },
+                set: { player.setAISoundEffectEnabled($0) }
+            ))
+            .disabled(account.membershipTier != .svip && !settings.aiSoundEffectEnabled)
+            if settings.aiSoundEffectEnabled {
+                Text(player.aiSoundEffectState.displayName)
+                if player.aiSoundEffectState == .failed {
+                    Button("重试调音") { player.refreshAISoundEffect(retry: true) }
+                }
+            } else if account.membershipTier != .svip {
+                Text("需要黑胶 SVIP")
+            }
         } label: {
             Group {
                 if showsTitle {
@@ -205,7 +219,7 @@ private struct PlaybackModeButton: View {
     var body: some View {
         Button(action: action) {
             Group {
-                if isFMMode || mode == .autoMix || mode == .shuffled {
+                if isFMMode || mode == .shuffled {
                     Image(systemName: isFMMode ? "wave.3.right" : (mode == .shuffled ? "shuffle" : "wand.and.stars"))
                         .font(.system(size: 16, weight: .medium))
                 } else {
@@ -271,7 +285,7 @@ private struct PlaybackModeButton: View {
                 path.addLine(to: CGPoint(x: 9.5, y: 11.5))
                 path.move(to: CGPoint(x: 8, y: 11.5))
                 path.addLine(to: CGPoint(x: 11, y: 11.5))
-            case .shuffled, .autoMix:
+            case .shuffled:
                 break // These modes use their system symbols above.
             }
         }

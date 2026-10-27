@@ -21,7 +21,7 @@ struct PlaybackStateStorageTests {
         let track = try JSONDecoder().decode(Track.self, from: Data("{\"id\":1}".utf8))
         let session = PlaybackSession(accountID: 42, queue: [track, track], orderedQueue: [track, track],
                                       currentIndex: 1, currentTrack: track, playNext: [track], source: .playlist(7),
-                                      repeatMode: "all", shuffled: true, automaticOrder: false,
+                                      repeatMode: "all", shuffled: true,
                                       isFM: false, progress: 95.5)
         let contexts = [PlayContext.playlist(id: 7, name: "Recent playlist")]
         let state = PlaybackState(session: hasSession ? session : nil, recentContexts: contexts)
@@ -71,7 +71,7 @@ struct PlaybackStateStorageTests {
         for progress in [0.0, 20, 40, 60, 95.5] {
             let session = PlaybackSession(accountID: nil, queue: [track], orderedQueue: [track],
                                           currentIndex: 0, currentTrack: track, playNext: [], source: .none,
-                                          repeatMode: "off", shuffled: false, automaticOrder: false,
+                                          repeatMode: "off", shuffled: false,
                                           isFM: false, progress: progress)
             PlaybackStateStorage.save(session, to: file)
         }

@@ -64,6 +64,8 @@ final class SettingsManager: ObservableObject {
     /// the key the same way.
     enum Keys {
         static let quality = "settings.audioQuality"
+        static let aiSoundEffect = "settings.aiSoundEffect"
+        static let aiSoundEffectStrength = "settings.aiSoundEffectStrength"
         static let appearance = "settings.appearance"
         static let nowPlayingMode = "settings.nowPlayingMode"
         static let transparentPlayback = "settings.transparentPlayback"
@@ -76,10 +78,6 @@ final class SettingsManager: ObservableObject {
         static let volume = "settings.volume"
         static let fmMode = "settings.fmMode"
         static let desktopLyrics = "settings.showDesktopLyrics"
-        static let automix = "settings.automixEnabled"
-        static let automixTransitions = "settings.automixTransitions"
-        static let automixOrder = "settings.automixOrder"
-        static let loudnessCompensation = "settings.loudnessCompensation"
         static let audioCacheLimit = "settings.audioCacheLimit"
         static let outputDevice = "settings.outputDeviceUID"
         static let desktopLyricsCentered = "settings.desktopLyricsCentered"
@@ -92,6 +90,13 @@ final class SettingsManager: ObservableObject {
 
     @Published var audioQuality: AudioQuality {
         didSet { UserDefaults.standard.set(audioQuality.rawValue, forKey: Keys.quality) }
+    }
+
+    @Published var aiSoundEffectEnabled: Bool {
+        didSet { UserDefaults.standard.set(aiSoundEffectEnabled, forKey: Keys.aiSoundEffect) }
+    }
+    @Published var aiSoundEffectStrength: Double {
+        didSet { UserDefaults.standard.set(aiSoundEffectStrength, forKey: Keys.aiSoundEffectStrength) }
     }
 
     static let audioCacheSizeRangeMB = 100...10_000
@@ -177,42 +182,6 @@ final class SettingsManager: ObservableObject {
         didSet { UserDefaults.standard.set(showDesktopLyrics, forKey: Keys.desktopLyrics) }
     }
 
-    /// The AutoMix master switch. Off means no per-track analysis at all, and
-    /// every sub-setting below is inert. Opt-in: AutoMix costs CPU (analysis)
-    /// and sometimes network (the order's candidates),
-    /// so it does not turn itself on. macOS-only for now (spec §7).
-    @Published var automixEnabled: Bool {
-        didSet { UserDefaults.standard.set(automixEnabled, forKey: Keys.automix) }
-    }
-
-    /// Beat-matched / crossfaded hand-overs between queue tracks. Off still
-    /// gives gapless playback, and off is *only* a statement about the seam:
-    /// analysis still runs when another sub-setting below wants it.
-    @Published var automixTransitionsEnabled: Bool {
-        didSet {
-            UserDefaults.standard.set(automixTransitionsEnabled,
-                                      forKey: Keys.automixTransitions)
-        }
-    }
-
-    /// The `.autoMix` queue order — reorder the queue by how well the seams
-    /// come out. It scores candidates, which means downloading tracks the
-    /// listener has not asked for yet, so it is off by default even under an
-    /// AutoMix that is on.
-    @Published var automixOrderEnabled: Bool {
-        didSet { UserDefaults.standard.set(automixOrderEnabled, forKey: Keys.automixOrder) }
-    }
-
-    /// Even out mastering loudness differences between songs, so the next
-    /// track does not arrive several dB louder. Needs AutoMix's per-track
-    /// analysis, so it is inert while AutoMix is off.
-    @Published var loudnessCompensationEnabled: Bool {
-        didSet {
-            UserDefaults.standard.set(loudnessCompensationEnabled,
-                                      forKey: Keys.loudnessCompensation)
-        }
-    }
-
     /// Audio cache LRU limit in bytes; 0 = unlimited. AudioCache reads the
     /// same defaults key at startup and receives changes from here.
     @Published var audioCacheLimit: Int64 {
@@ -263,6 +232,9 @@ final class SettingsManager: ObservableObject {
     private init() {
         let defaults = UserDefaults.standard
         audioQuality = defaults.string(forKey: Keys.quality).flatMap(AudioQuality.init) ?? .exhigh
+        aiSoundEffectEnabled = defaults.bool(forKey: Keys.aiSoundEffect)
+        let effectStrength = defaults.object(forKey: Keys.aiSoundEffectStrength) as? Double ?? 1
+        aiSoundEffectStrength = effectStrength.isFinite ? min(1, max(0, effectStrength)) : 1
         enableAudioCache = defaults.object(forKey: Keys.enableAudioCache) as? Bool ?? true
         // A size somebody chose stays chosen; the untouched default becomes automatic.
         audioCacheAutomatic = defaults.object(forKey: Keys.audioCacheAutomatic) as? Bool
@@ -287,12 +259,6 @@ final class SettingsManager: ObservableObject {
             ?? (defaults.bool(forKey: Keys.showRomaji) ? .romaji : .off)
         verbatimLyrics = defaults.object(forKey: Keys.verbatimLyrics) as? Bool ?? true
         showDesktopLyrics = defaults.object(forKey: Keys.desktopLyrics) as? Bool ?? false
-        automixEnabled = defaults.object(forKey: Keys.automix) as? Bool ?? false
-        automixTransitionsEnabled =
-            defaults.object(forKey: Keys.automixTransitions) as? Bool ?? true
-        automixOrderEnabled = defaults.object(forKey: Keys.automixOrder) as? Bool ?? false
-        loudnessCompensationEnabled =
-            defaults.object(forKey: Keys.loudnessCompensation) as? Bool ?? true
         audioCacheLimit = (defaults.object(forKey: Keys.audioCacheLimit) as? Int64)
             ?? Self.defaultAudioCacheLimit
         outputDeviceUID = defaults.string(forKey: Keys.outputDevice) ?? ""

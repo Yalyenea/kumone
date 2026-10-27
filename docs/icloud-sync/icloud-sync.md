@@ -179,7 +179,7 @@ Sync folder (iCloud Drive / user-authorized folder)
 
 - **Per-field LWW merge**: each preference field carries the `SyncRevision` of its last edit. Conflicts are resolved per field and the higher revision wins, independent of device clocks.
 - **Echo suppression**: `lastObservedValues` records the adopted settings projection. When a remote value is applied locally, the baseline is updated too, so the Combine observers do not mistake the remote write for a new local edit.
-- **Local-only settings**: volume, audio output device, local cache cleanup, window position and the Mac-only AutoMix settings stay in the local sandbox and never sync.
+- **Local-only settings**: volume, audio output device, local cache cleanup, window position and AI tuning settings stay in the local sandbox and never sync.
 - **Read before write on first connect**: a device connecting for the first time reads and applies the existing settings first and only publishes fields missing from the cloud, so a new device's defaults never overwrite existing settings.
 
 ---
