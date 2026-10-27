@@ -3,7 +3,6 @@ import SwiftUI
 /// Artwork and lyrics share the available space; transport stays at the bottom.
 struct NowPlayingView: View {
     let onOpenDestination: (Destination) -> Void
-    let navigation: NavigationActions
 
     @EnvironmentObject private var player: PlayerService
     @ObservedObject private var lyricsCursor = PlayerService.shared.lyricsCursor
@@ -80,8 +79,6 @@ struct NowPlayingView: View {
 
     private var headerBar: some View {
         HStack(spacing: 4) {
-            NavigationHistoryButtons(navigation: navigation)
-                .padding(.leading, MainWindowTitlebar.leadingInset + 6)
             Spacer()
           HStack(spacing: 4) {
             Menu {

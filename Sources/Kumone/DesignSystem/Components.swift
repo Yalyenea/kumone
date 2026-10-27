@@ -247,9 +247,11 @@ final class MarqueeTextView: PlatformView {
     private static let leadIn: CFTimeInterval = 1.6
     private static let fadeFraction = 0.06
 
-    private let scroller = CALayer()
-    private let first = CATextLayer()
-    private let second = CATextLayer()
+    private let scroller = NSView()
+    // Let AppKit rasterize labels at the display's backing scale. Bare text
+    // layers lose that automatic management and soften small player titles.
+    private let first = NSTextField(labelWithString: "")
+    private let second = NSTextField(labelWithString: "")
     private let fade = CAGradientLayer()
 
     private var text: String
@@ -272,23 +274,25 @@ final class MarqueeTextView: PlatformView {
         self.weight = weight
         super.init(frame: .zero)
         wantsLayer = true
-        hostLayer?.addSublayer(scroller)
-        scroller.addSublayer(first)
-        scroller.addSublayer(second)
-        hostLayer?.mask = fade
+        scroller.wantsLayer = true
+        addSubview(scroller)
+        scroller.addSubview(first)
+        scroller.addSubview(second)
         fade.startPoint = CGPoint(x: 0, y: 0.5)
         fade.endPoint = CGPoint(x: 1, y: 0.5)
-        for textLayer in [first, second] {
-            textLayer.contentsScale = 2
-            textLayer.truncationMode = .none
-            textLayer.isWrapped = false
+        for label in [first, second] {
+            label.lineBreakMode = .byClipping
+            label.maximumNumberOfLines = 1
         }
+        second.setAccessibilityElement(false)
         applyForegroundColor(foregroundColor)
         applyText()
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     func update(text: String, fontSize: CGFloat, weight: PlatformFont.Weight, foregroundColor: CGColor) {
         // Theme changes must reach both copies even when the title is unchanged.
@@ -304,22 +308,19 @@ final class MarqueeTextView: PlatformView {
     private var font: PlatformFont { .systemFont(ofSize: fontSize, weight: weight) }
 
     private func applyForegroundColor(_ color: CGColor) {
-        guard first.foregroundColor != color else { return }
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        first.foregroundColor = color
-        second.foregroundColor = color
-        CATransaction.commit()
+        let color = NSColor(cgColor: color)
+        guard first.textColor != color else { return }
+        first.textColor = color
+        second.textColor = color
     }
 
     private func applyText() {
         let font = self.font
-        textWidth = (text as NSString).size(withAttributes: [.font: font]).width.rounded(.up)
-        for textLayer in [first, second] {
-            textLayer.string = text
-            textLayer.font = font
-            textLayer.fontSize = fontSize
+        for label in [first, second] {
+            label.stringValue = text
+            label.font = font
         }
+        textWidth = ceil(first.intrinsicContentSize.width)
     }
 
     override func layout() {
@@ -330,9 +331,11 @@ final class MarqueeTextView: PlatformView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        let scale = window?.backingScaleFactor ?? 2
-        first.contentsScale = scale
-        second.contentsScale = scale
+        relayout()
+    }
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
         relayout()
     }
 
@@ -342,16 +345,20 @@ final class MarqueeTextView: PlatformView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
 
-        let lineHeight = ceil(font.ascender - font.descender)
-        let y = ((bounds.height - lineHeight) / 2).rounded()
-        first.frame = CGRect(x: 0, y: y, width: textWidth, height: lineHeight)
+        let lineHeight = ceil(first.intrinsicContentSize.height)
+        let labelFrame = backingAlignedRect(
+            CGRect(x: 0, y: (bounds.height - lineHeight) / 2,
+                   width: textWidth, height: lineHeight), options: .alignAllEdgesNearest)
+        let y = labelFrame.origin.y
+        first.frame = labelFrame
         second.frame = CGRect(x: textWidth + Self.gap, y: y, width: textWidth, height: lineHeight)
         second.isHidden = !needsMarquee
-        scroller.anchorPoint = .zero
-        scroller.bounds = CGRect(x: 0, y: 0,
-                                 width: textWidth * 2 + Self.gap, height: bounds.height)
-        scroller.position = .zero
+        scroller.frame = CGRect(x: 0, y: 0,
+                                width: textWidth * 2 + Self.gap, height: bounds.height)
+        // Short titles need neither an offscreen mask nor a scrolling surface.
+        hostLayer?.mask = needsMarquee ? fade : nil
         fade.frame = bounds
+        fade.contentsScale = window?.backingScaleFactor ?? 1
         fade.colors = fadeColors()
         fade.locations = fadeLocations()
 
@@ -373,17 +380,17 @@ final class MarqueeTextView: PlatformView {
     }
 
     private func restartAnimation() {
-        scroller.removeAnimation(forKey: "marquee")
+        scroller.layer?.removeAnimation(forKey: "marquee")
         guard needsMarquee, !Platform.isReduceMotionEnabled else { return }
 
         let distance = textWidth + Self.gap
-        let animation = CABasicAnimation(keyPath: "position.x")
+        let animation = CABasicAnimation(keyPath: "transform.translation.x")
         animation.byValue = -distance
         animation.duration = CFTimeInterval(distance / Self.speed)
         animation.repeatCount = .infinity
         animation.isRemovedOnCompletion = false
         animation.beginTime = CACurrentMediaTime() + Self.leadIn
-        scroller.add(animation, forKey: "marquee")
+        scroller.layer?.add(animation, forKey: "marquee")
     }
 
     // MARK: Bridge

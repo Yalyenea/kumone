@@ -218,13 +218,16 @@ struct VolumeSwipeBoundsKey: PreferenceKey {
     static let defaultValue = CGRect.zero
 
     static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
-        value = nextValue()
+        // Siblings without a volume control contribute .zero; they must not
+        // erase the hit region before it reaches the player's event monitor.
+        let next = nextValue()
+        if !next.isEmpty { value = next }
     }
 }
 
 /// SwiftUI's DragGesture handles pointer drags; two-finger trackpad swipes
 /// arrive as scroll events instead. Scope the monitor to this view's bounds.
-private struct TrackpadTrackSwipe: NSViewRepresentable {
+struct TrackpadTrackSwipe: NSViewRepresentable {
     let enabled: Bool
     let volumeBounds: CGRect
     let onSwipe: (TrackSwipeDirection) -> Void
@@ -284,14 +287,14 @@ private struct TrackpadTrackSwipe: NSViewRepresentable {
             state = TrackSwipeState()
         }
 
-        private func handle(_ event: NSEvent) -> NSEvent? {
+        func handle(_ event: NSEvent) -> NSEvent? {
             guard enabled, let window, event.window === window,
                   !isHiddenOrHasHiddenAncestor, event.hasPreciseScrollingDeltas else { return event }
 
             if event.phase.contains(.began) || event.phase.contains(.mayBegin) {
                 state = TrackSwipeState()
                 let point = convert(event.locationInWindow, from: nil)
-                startedInside = visibleRect.contains(point)
+                startedInside = containsGestureStart(point)
                 adjustsVolume = volumeBounds.contains(point)
             }
             guard startedInside else { return event }
@@ -321,6 +324,12 @@ private struct TrackpadTrackSwipe: NSViewRepresentable {
                 onSlide?(state.horizontalTranslation)
             }
             return state.isHorizontal ? nil : event
+        }
+
+        private func containsGestureStart(_ point: CGPoint) -> Bool {
+            // Unclipped AppKit views can have a visibleRect larger than their
+            // bounds. The page monitor must never capture the bar's volume.
+            bounds.contains(point) && visibleRect.contains(point)
         }
     }
 }

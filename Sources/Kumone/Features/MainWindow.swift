@@ -198,7 +198,7 @@ struct MainWindow: View {
             // page takes a single frame when the window comes back. The
             // player state — and the page on restore — is untouched.
             if player.showNowPlaying, windowVisibility.isOnScreen {
-                NowPlayingView(onOpenDestination: openDestination, navigation: navigationActions)
+                NowPlayingView(onOpenDestination: openDestination)
                     .environmentObject(artworkStore)
                     .background(ArrowCursorOverride())
                     // Resolve the slide at the page boundary, including artwork
