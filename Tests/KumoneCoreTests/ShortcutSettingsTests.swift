@@ -29,6 +29,51 @@ struct ShortcutSettingsTests {
         #expect(restored.appShortcuts == manager.appShortcuts)
     }
 
+    @Test func escapeClosesLyricsAndQueueBeforeThePlaybackPage() throws {
+        let player = PlayerService.shared
+        let originalPanel = player.activePanel
+        let originalPage = player.showNowPlaying
+        defer {
+            player.activePanel = originalPanel
+            player.showNowPlaying = originalPage
+        }
+        let escape = try keyEvent(code: 53, key: "\u{1B}")
+
+        for panel in [RightPanel.lyrics, .queue] {
+            for showPage in [false, true] {
+                player.activePanel = panel
+                player.showNowPlaying = showPage
+
+                #expect(AppDelegate.interceptKeyEvent(escape) == nil)
+                #expect(player.activePanel == nil)
+                #expect(player.showNowPlaying == showPage)
+                if showPage {
+                    #expect(AppDelegate.interceptKeyEvent(escape) == nil)
+                    #expect(!player.showNowPlaying)
+                }
+            }
+        }
+    }
+
+    @Test func modifiedEscapeDoesNotDismissPlaybackSurfaces() throws {
+        let player = PlayerService.shared
+        let originalPanel = player.activePanel
+        let originalPage = player.showNowPlaying
+        defer {
+            player.activePanel = originalPanel
+            player.showNowPlaying = originalPage
+        }
+        player.activePanel = .queue
+        player.showNowPlaying = true
+
+        for flags in [NSEvent.ModifierFlags.command, .control, .option, .shift] {
+            let escape = try keyEvent(code: 53, key: "\u{1B}", flags: flags)
+            #expect(AppDelegate.interceptKeyEvent(escape) === escape)
+            #expect(player.activePanel == .queue)
+            #expect(player.showNowPlaying)
+        }
+    }
+
     @Test func migratesLegacyBindingsIncludingExplicitlyDisabledDefaults() throws {
         let suite = "kumone-shortcuts-\(UUID())"
         let defaults = try #require(UserDefaults(suiteName: suite))
@@ -162,6 +207,15 @@ struct ShortcutSettingsTests {
 
     @Test func recordingReceivesPlaybackBindingsDeleteAndEscapeBeforeAppShortcuts() throws {
         _ = NSApplication.shared
+        let player = PlayerService.shared
+        let originalPanel = player.activePanel
+        let originalPage = player.showNowPlaying
+        defer {
+            player.activePanel = originalPanel
+            player.showNowPlaying = originalPage
+        }
+        player.activePanel = .queue
+        player.showNowPlaying = true
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 100, height: 100),
                               styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -188,6 +242,8 @@ struct ShortcutSettingsTests {
                                                         windowNumber: window.windowNumber)) == nil)
         #expect(cancellations == 1)
         #expect(recorded.count == 1)
+        #expect(player.activePanel == .queue)
+        #expect(player.showNowPlaying)
     }
 
     private func keyEvent(code: UInt16, key: String, flags: NSEvent.ModifierFlags = [],

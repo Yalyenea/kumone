@@ -107,7 +107,7 @@ public enum ShortcutAction: String, Codable, CaseIterable, Identifiable, Hashabl
         case .toggleLike: return String(localized: "喜欢")
         case .toggleLyrics: return String(localized: "歌词")
         case .toggleQueue: return String(localized: "播放队列")
-        case .closeImmersive: return String(localized: "关闭播放页")
+        case .closeImmersive: return String(localized: "关闭面板 / 播放页")
         case .volumeUp: return String(localized: "增加音量")
         case .volumeDown: return String(localized: "减少音量")
         }
@@ -116,15 +116,16 @@ public enum ShortcutAction: String, Codable, CaseIterable, Identifiable, Hashabl
     public var defaultShortcut: UserShortcut {
         switch self {
         case .togglePlayPause: return UserShortcut(key: " ", modifiers: [])
-        case .nextTrack: return UserShortcut(key: "\u{F703}", modifiers: [.command])
-        case .previousTrack: return UserShortcut(key: "\u{F702}", modifiers: [.command])
-        case .cycleRepeatMode: return UserShortcut(key: "r", modifiers: [.command, .shift])
-        case .toggleLike: return UserShortcut(key: "l", modifiers: [.command, .shift])
-        case .toggleLyrics: return UserShortcut(key: "l", modifiers: [.command])
-        case .toggleQueue: return UserShortcut(key: "u", modifiers: [.command])
-        case .closeImmersive: return UserShortcut(key: "", modifiers: [])
-        case .volumeUp: return UserShortcut(key: "\u{F700}", modifiers: [.command])
-        case .volumeDown: return UserShortcut(key: "\u{F701}", modifiers: [.command])
+        // Follow Vim's down/up direction for moving through the playback queue.
+        case .nextTrack: return UserShortcut(key: "j", modifiers: [])
+        case .previousTrack: return UserShortcut(key: "k", modifiers: [])
+        case .cycleRepeatMode: return UserShortcut(key: "r", modifiers: [])
+        case .toggleLike: return UserShortcut(key: "l", modifiers: [])
+        case .toggleLyrics: return UserShortcut(key: "y", modifiers: [])
+        case .toggleQueue: return UserShortcut(key: "q", modifiers: [])
+        case .closeImmersive: return UserShortcut(key: "\u{1B}", modifiers: [])
+        case .volumeUp: return UserShortcut(key: "=", modifiers: [])
+        case .volumeDown: return UserShortcut(key: "-", modifiers: [])
         }
     }
 }
@@ -274,9 +275,7 @@ final class ShortcutManager: ObservableObject {
             case .toggleQueue:
                 player.activePanel = player.activePanel == .queue ? nil : .queue
             case .closeImmersive:
-                if player.showNowPlaying {
-                    player.showNowPlaying = false
-                }
+                player.dismissPlaybackPresentation()
             case .volumeUp:
                 player.volume = min(player.volume + 0.1, 1.0)
             case .volumeDown:

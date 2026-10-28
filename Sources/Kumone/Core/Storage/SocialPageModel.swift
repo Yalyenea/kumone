@@ -92,9 +92,11 @@ final class MessageCenterStore: ObservableObject {
         isLoading = false
     }
 
-    func refresh() async {
+    func refresh(afterReading: Bool = false) async {
         if session != currentSession() { reset() }
-        guard let binding = currentSession(), !isLoading else { return }
+        guard let binding = currentSession(), afterReading || !isLoading else { return }
+        // A count request started before the read must not restore its old badge.
+        if afterReading { generation += 1 }
         let ticket = generation
         isLoading = true
         defer { if ticket == generation { isLoading = false } }

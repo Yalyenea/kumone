@@ -134,11 +134,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             recorder.keyDown(with: event)
             return nil
         }
-        // Outside recording, unmodified Esc closes the immersive playback page.
+        // Dismiss the topmost playback surface before its underlying page.
         if event.keyCode == 53,
            event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty,
-           PlayerService.shared.showNowPlaying {
-            PlayerService.shared.showNowPlaying = false
+           PlayerService.shared.dismissPlaybackPresentation() {
             return nil
         }
         return ShortcutManager.shared.handleKeyEvent(event) ? nil : event

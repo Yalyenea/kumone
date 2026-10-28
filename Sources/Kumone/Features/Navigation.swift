@@ -276,6 +276,10 @@ struct DestinationsModifier: ViewModifier {
                 }
             }
             .playerContentInset()
+            // Navigation retains the previous page underneath transparent
+            // destinations. Cover the full viewport, including loading states.
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(Platform.windowBackgroundColor)
             .toolbar(removing: .title)
             .navigationBarBackButtonHidden(true)
         }

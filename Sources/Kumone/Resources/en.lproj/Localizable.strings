@@ -320,7 +320,7 @@
 "录制中…" = "Recording…";
 "清除快捷键" = "Clear Shortcut";
 "Delete 清除 · Esc 取消" = "Delete to clear · Esc to cancel";
-"关闭播放页" = "Close Now Playing";
+"关闭面板 / 播放页" = "Close panel / Now Playing";
 "无法读取快捷键，暂用默认设置" = "Cannot read shortcuts; using defaults for now";
 
 "下载" = "Download";

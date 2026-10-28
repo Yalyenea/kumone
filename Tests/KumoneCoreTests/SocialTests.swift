@@ -136,6 +136,32 @@ struct SocialStateTests {
         #expect(!model.hasMore)
     }
 
+    @Test @MainActor func readingAConversationSupersedesAnOlderUnreadCountRequest() async throws {
+        let session = SocialTestSession(), gate = SocialResponseGate()
+        let unread = try JSONDecoder().decode(MessageCounts.self,
+            from: Data("{\"msg\":1,\"comment\":0,\"forward\":0,\"notice\":0,\"follow\":0}".utf8))
+        let read = try JSONDecoder().decode(MessageCounts.self,
+            from: Data("{\"msg\":0,\"comment\":0,\"forward\":0,\"notice\":0,\"follow\":0}".utf8))
+        var requests = 0
+        let model = MessageCenterStore(session: { session.value }) {
+            requests += 1
+            let request = requests
+            if request == 2 { await gate.wait() }
+            return request <= 2 ? unread : read
+        }
+        await model.refresh()
+        #expect(model.unread == 1)
+
+        // Hold a stale response while the conversation is read on the server.
+        let pending = Task { await model.refresh() }
+        for _ in 0..<100 { if await gate.entered { break }; await Task.yield() }
+        await model.refresh(afterReading: true)
+        #expect(model.unread == 0 && !model.isLoading)
+        await gate.open()
+        await pending.value
+        #expect(model.unread == 0 && !model.isLoading)
+    }
+
     @Test @MainActor func unreadCountsDisappearAsSoonAsTheLoginChanges() async throws {
         let session = SocialTestSession()
         let counts = try JSONDecoder().decode(MessageCounts.self, from: Data("{\"msg\":2,\"comment\":1,\"forward\":0,\"notice\":3,\"follow\":1}".utf8))

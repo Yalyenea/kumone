@@ -191,7 +191,7 @@ struct ConversationView: View {
                     HStack {
                         Text(name).font(.system(size: 24, weight: .semibold)).lineLimit(1)
                         Spacer()
-                        SocialRefreshButton(loading: model.isLoading) { Task { await model.refresh() } }
+                        SocialRefreshButton(loading: model.isLoading) { Task { await refresh() } }
                     }.padding(.bottom, 8)
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 16) {
@@ -230,9 +230,17 @@ struct ConversationView: View {
                 .padding(Theme.Layout.contentInset)
             }
         }
-        .task(id: account.socialSession) { await model.refresh() }
+        .task(id: account.socialSession) { await refresh() }
         .navigationTitle(name)
         .onDisappear { Task { await MessageCenterStore.shared.refresh() } }
+    }
+
+    private func refresh() async {
+        await model.refresh()
+        guard model.hasLoaded, model.session == account.socialSession, !Task.isCancelled else { return }
+        // The history request marks this thread read; update the badges while
+        // it is open, rather than waiting for navigation back to the list.
+        await MessageCenterStore.shared.refresh(afterReading: true)
     }
 }
 

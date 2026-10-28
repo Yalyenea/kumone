@@ -173,6 +173,20 @@ final class PlayerService: ObservableObject {
 
     var hasCurrentTrack: Bool { currentTrack != nil }
 
+    @discardableResult
+    func dismissPlaybackPresentation() -> Bool {
+        // Panels sit above both the library and Now Playing; close them first.
+        if activePanel != nil {
+            activePanel = nil
+            return true
+        }
+        if showNowPlaying {
+            showNowPlaying = false
+            return true
+        }
+        return false
+    }
+
     // MARK: - Engine
 
     private let engine = PlaybackEngine()

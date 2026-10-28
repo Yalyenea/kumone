@@ -20,12 +20,8 @@ struct NowPlayingView: View {
                     // Continue the same gradient beneath the persistent transport.
                     .padding(.bottom, -Theme.Layout.playerBarHeight)
                 VStack(spacing: 0) {
-                    pageHeader
-                    GeometryReader { content in
-                        playbackLayout(size: content.size)
-                            .trackSwipeContent()
-                    }
-                    .clipped()
+                    headerBar
+                    playbackContent
                 }
             }
             .frame(width: geo.size.width, height: geo.size.height)
@@ -39,7 +35,6 @@ struct NowPlayingView: View {
         // close button included — a toolbar's height down from the window top.
         .ignoresSafeArea()
         .preferredColorScheme(.dark)
-        .trackSwipeNavigation()
         .onExitCommand {
             close()
         }
@@ -65,16 +60,23 @@ struct NowPlayingView: View {
 
     /// Give song metadata its own row below the window controls, so the
     /// lyrics layout has breathing room without moving the header buttons.
-    private var pageHeader: some View {
+    private var playbackContent: some View {
         VStack(spacing: 0) {
-            headerBar
             if settings.nowPlayingMode == .lyrics {
                 trackMetaView
                     .trackSwipeContent()
                     .padding(.horizontal, 32)
                     .padding(.vertical, 12)
             }
+            GeometryReader { content in
+                playbackLayout(size: content.size)
+                    .trackSwipeContent()
+            }
+            .clipped()
         }
+        // The header extends into the titlebar outside the safe area. Keep the
+        // swipe's content shape below it so it cannot cut off button hit tests.
+        .trackSwipeNavigation()
     }
 
     private var headerBar: some View {

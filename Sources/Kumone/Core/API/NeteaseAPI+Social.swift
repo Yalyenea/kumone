@@ -56,8 +56,10 @@ extension NeteaseAPI {
 
     static func privateHistory(uid: Int, cursor: Int?, using client: NeteaseClient = .shared) async throws -> SocialPage<PrivateMessage> {
         struct Response: Decodable { let msgs: [PrivateMessage]; let more: Bool }
+        // Opening the latest page with time=-1 also marks the conversation read.
+        // Older pages retain their timestamp cursor.
         let response = try await socialRequest(Response.self, "/msg/private/history",
-            ["userId": uid, "time": cursor ?? 0, "limit": 30, "total": "true"], using: client)
+            ["userId": uid, "time": cursor ?? -1, "limit": 30, "total": "true"], using: client)
         return .init(items: response.msgs, nextCursor: response.more ? response.msgs.map { Int($0.time) }.min() : nil)
     }
 
