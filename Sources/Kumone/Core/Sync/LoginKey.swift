@@ -51,6 +51,8 @@ struct LoginKey {
     init(id: UUID, secret: SymmetricKey) {
         self.id = id
         self.secret = secret
+        // These strings are part of the existing encrypted sync format.
+        // A brand rename must not invalidate previously sealed logins.
         sealing = HKDF<SHA256>.deriveKey(inputKeyMaterial: secret, info: Data("kumone.login.seal".utf8),
                                          outputByteCount: 32)
         let verifying = HKDF<SHA256>.deriveKey(inputKeyMaterial: secret, info: Data("kumone.login.verify".utf8),
@@ -107,6 +109,7 @@ struct LoginKeyStore {
     let save: (SymmetricKey, UUID) throws -> Void
 
     static var keychain: Self {
+        // Preserve access to the key already stored by this installation.
         let service = "im.missuo.kumone.sync-login-key"
         return Self(
             load: { id in

@@ -1,4 +1,4 @@
-# Kumone
+# Liltiva
 
 这是 [missuo/kumone](https://github.com/missuo/kumone) 的个人 fork，用于个人定制。感谢 missuo 和上游贡献者。
 

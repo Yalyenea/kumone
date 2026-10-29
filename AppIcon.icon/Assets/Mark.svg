@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 256 256"><title>Liltiva — 浅浮雕</title><defs>
+  <linearGradient id="rim" x1="0" y1="0" x2="0.8" y2="1">
+    <stop stop-color="#FFFFFF"/><stop offset="0.45" stop-color="#F6F4EF"/>
+    <stop offset="1" stop-color="#BFC9CE"/>
+  </linearGradient>
+  <linearGradient id="ink" x1="0" y1="0" x2="0.3" y2="1">
+    <stop stop-color="#84919A"/><stop offset="0.6" stop-color="#687580"/>
+    <stop offset="1" stop-color="#586975"/>
+  </linearGradient>
+  <filter id="lift" x="-30%" y="-30%" width="160%" height="160%">
+    <feDropShadow dx="0" dy="1.5" stdDeviation="1" flood-color="#485C69" flood-opacity="0.22"/>
+  </filter>
+</defs><rect x="8" y="8" width="240" height="240" rx="56" fill="none" stroke="url(#rim)" stroke-width="2"/><path d="M171.503 143.714 A48 48 0 1 1 110.018 119.495 C124.853 113.501 148.243 101.042 158.142 91.142 A20 20 0 1 0 124.000 77.000 V155 A16 16 0 0 0 140 171" fill="none" stroke="url(#ink)" stroke-width="16" stroke-linecap="round" stroke-linejoin="round" filter="url(#lift)"/></svg>

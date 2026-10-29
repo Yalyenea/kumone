@@ -1,3 +1,4 @@
 import KumoneCore
 
-KumoneApp.main()
+AppMigration.prepareForLaunch()
+LiltivaApp.main()

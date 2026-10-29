@@ -1,6 +1,7 @@
 import Foundation
 
 /// The app's on-disk homes, so every store spells the `Kumone/…` folder once.
+/// Keep this directory after rebranding; saved playback URLs also refer to it.
 enum KumoneDirectories {
     /// `~/Library/Application Support/Kumone/<sub>`, created on first use.
     static func applicationSupport(_ sub: String? = nil) -> URL {

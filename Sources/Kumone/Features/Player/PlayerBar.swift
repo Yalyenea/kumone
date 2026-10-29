@@ -55,11 +55,11 @@ struct PlayerBar: View {
                 MarqueeText(text: player.currentTrack?.name ?? String(localized: "未在播放"))
                     .frame(height: 17)
                     .help(player.currentTrack?.name ?? String(localized: "未在播放"))
-                Text(player.currentTrack?.artistNames ?? "Kumone")
+                Text(player.currentTrack?.artistNames ?? "Liltiva")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
-                    .help(player.currentTrack?.artistNames ?? "Kumone")
+                    .help(player.currentTrack?.artistNames ?? "Liltiva")
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             if let track = player.currentTrack {

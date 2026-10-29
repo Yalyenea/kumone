@@ -286,7 +286,7 @@ struct SettingsView: View {
 
         case .about:
             Form {
-                Section("Kumone") {
+                Section("Liltiva") {
                     LabeledContent("版本", value: appVersion)
                     settingsHint("网易云音乐第三方客户端。数据来自网易云音乐。")
                 }

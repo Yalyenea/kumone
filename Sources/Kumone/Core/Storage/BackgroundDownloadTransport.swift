@@ -111,6 +111,7 @@ final class DownloadSessionDelegate: NSObject, URLSessionDownloadDelegate, @unch
 
 @MainActor
 final class BackgroundDownloadTransport: DownloadTransport {
+    // Retain the system session name so queued downloads can be recovered.
     nonisolated static let identifier = "im.missuo.Kumone.offline-downloads.v1"
     let events: AsyncStream<DownloadTransportEvent>
     let inbox: URL

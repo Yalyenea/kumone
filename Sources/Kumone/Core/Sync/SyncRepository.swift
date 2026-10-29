@@ -32,6 +32,7 @@ actor SyncRepository {
     private var decodedFiles: [String: CachedRecord] = [:]
     private var playbackStore: PlaybackSyncStore
     private struct Manifest: Codable {
+        // The on-disk application name identifies the format, not its UI brand.
         let application: String
         let schemaVersion: Int
     }

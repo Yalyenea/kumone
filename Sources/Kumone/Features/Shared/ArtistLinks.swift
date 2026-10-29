@@ -17,7 +17,7 @@ struct ArtistLinks: View {
         for artist in artists where !artist.name.isEmpty {
             if !result.characters.isEmpty { result.append(AttributedString(" / ")) }
             var name = AttributedString(artist.name)
-            if artist.id > 0 { name.link = URL(string: "kumone://artist/\(artist.id)") }
+            if artist.id > 0 { name.link = URL(string: "liltiva://artist/\(artist.id)") }
             result.append(name)
         }
         return result
@@ -32,7 +32,7 @@ struct ArtistLinks: View {
             .truncationMode(.tail)
             .help(names)
             .environment(\.openURL, OpenURLAction { url in
-                guard url.scheme == "kumone", url.host == "artist",
+                guard url.scheme == "liltiva", url.host == "artist",
                       let id = Int(url.lastPathComponent), id > 0 else { return .discarded }
                 onOpenArtist(id)
                 return .handled

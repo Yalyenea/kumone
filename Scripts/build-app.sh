@@ -1,5 +1,5 @@
 #!/bin/bash
-# Builds Kumone with SwiftPM and wraps the product into a .app bundle.
+# Builds Liltiva with SwiftPM and wraps the product into a .app bundle.
 # Usage: Scripts/build-app.sh [debug|release]
 set -euo pipefail
 
@@ -8,8 +8,8 @@ ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$ROOT"
 
 CONF="${1:-debug}"
-APP_NAME="Kumone"
-BUNDLE_ID="im.missuo.Kumone"
+APP_NAME="Liltiva"
+BUNDLE_ID="io.github.yalyenea.Liltiva"
 # Version resolution: environment > version.env > defaults.
 ENV_MARKETING_VERSION="${MARKETING_VERSION:-}"
 ENV_BUILD_NUMBER="${BUILD_NUMBER:-}"
@@ -46,7 +46,11 @@ swift build -c "$CONF" ${EXTRA_FLAGS[@]+"${EXTRA_FLAGS[@]}"} \
 BIN_PATH="$(swift build -c "$CONF" ${EXTRA_FLAGS[@]+"${EXTRA_FLAGS[@]}"} \
   --triple arm64-apple-macosx --show-bin-path)"
 
-rm -rf "$BUILD_DIR"
+# Replace only this app, keeping the running pre-migration bundle available.
+if [ -e "$APP_BUNDLE" ]; then
+  mkdir -p "$ROOT/.tmp/trash"
+  mv "$APP_BUNDLE" "$(mktemp -d "$ROOT/.tmp/trash/app.XXXXXX")/"
+fi
 mkdir -p "$APP_BUNDLE/Contents/MacOS" "$APP_BUNDLE/Contents/Resources"
 
 cp "$BIN_PATH/$APP_NAME" "$APP_BUNDLE/Contents/MacOS/$APP_NAME"
@@ -109,6 +113,7 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
         <string>en</string>
     </array>
     <key>CFBundleExecutable</key><string>$APP_NAME</string>
+    <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>CFBundleIconName</key><string>AppIcon</string>
     <key>CFBundleIcons</key>
     <dict>
@@ -126,14 +131,14 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
     <key>CFBundleVersion</key><string>$BUILD_NUMBER</string>
     <key>LSApplicationCategoryType</key><string>public.app-category.music</string>
     <key>LSMinimumSystemVersion</key><string>15.0</string>
-    <key>NSHumanReadableCopyright</key><string>© 2026 missuo</string>
+    <key>NSHumanReadableCopyright</key><string>© 2026 missuo and contributors. Liltiva modifications © 2026 Yalyenea.</string>
     <key>NSPrincipalClass</key><string>NSApplication</string>
     <key>NSHighResolutionCapable</key><true/>
     <key>NSAppTransportSecurity</key>
     <dict>
         <key>NSAllowsArbitraryLoads</key><true/>
     </dict>
-    <key>KumoneGitCommit</key><string>$GIT_COMMIT</string>
+    <key>LiltivaGitCommit</key><string>$GIT_COMMIT</string>
 </dict>
 </plist>
 PLIST

@@ -1,7 +1,7 @@
 import Combine
 import SwiftUI
 
-public struct KumoneApp: App {
+public struct LiltivaApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     @StateObject private var player = PlayerService.shared
@@ -13,7 +13,7 @@ public struct KumoneApp: App {
     public init() {}
 
     public var body: some Scene {
-        Window("Kumone", id: "main") {
+        Window("Liltiva", id: "main") {
             MainWindow()
                 .scrollIndicators(.never)
                 .environmentObject(player)

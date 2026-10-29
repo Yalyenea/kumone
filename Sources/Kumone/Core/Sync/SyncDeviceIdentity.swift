@@ -6,6 +6,7 @@ import Security
 enum SyncDeviceIdentity {
     private static let cache = Cache()
 
+    // Keep the Keychain service across app renames to retain this device's ID.
     static func load(service: String = "im.missuo.kumone.sync-device") async throws -> UUID {
         try await cache.load(service: service)
     }

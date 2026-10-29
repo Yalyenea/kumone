@@ -17,7 +17,7 @@ import PackageDescription
 //      against the framework (autolink intact).
 //   2. ln -sfn "$CLT/Frameworks/Testing.framework/Versions/A/Modules/\
 //      Testing.swiftmodule" .build/arm64-apple-macosx/debug/Modules/ ,
-//      rm -rf .build/arm64-apple-macosx/debug/KumonePackageTests.derived ,
+//      rm -rf .build/arm64-apple-macosx/debug/LiltivaPackageTests.derived ,
 //      then KUMONE_CLT_TESTING=1 swift test — the runner regenerates with
 //      Testing visible while the cached test objects keep their autolink
 //      records.
@@ -35,11 +35,11 @@ let cltTestingLinkerSettings: [LinkerSetting] = cltHasTesting
     : []
 
 let package = Package(
-    name: "Kumone",
+    name: "Liltiva",
     defaultLocalization: "zh-Hans",
     platforms: [.macOS("15.0")],
     products: [
-        .executable(name: "Kumone", targets: ["KumoneLauncher"]),
+        .executable(name: "Liltiva", targets: ["KumoneLauncher"]),
         .library(name: "KumoneCore", targets: ["KumoneCore"]),
     ],
     targets: [

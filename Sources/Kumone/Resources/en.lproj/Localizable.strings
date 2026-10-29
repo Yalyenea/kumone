@@ -1,4 +1,4 @@
-/* Kumone — English localization. Keys are the Simplified Chinese source strings. */
+/* Liltiva — English localization. Keys are the Simplified Chinese source strings. */
 
 /* Sidebar & navigation */
 "推荐" = "Home";
@@ -407,8 +407,8 @@
 "可用" = "Available";
 "正在计算存储空间…" = "Calculating storage…";
 "暂时无法读取设备容量" = "Device capacity is unavailable";
-"Kumone 占用" = "Kumone Storage";
-"已统计的 Kumone 占用" = "Measured Kumone Storage";
+"Liltiva 占用" = "Liltiva Storage";
+"已统计的 Liltiva 占用" = "Measured Liltiva Storage";
 "部分存储信息不可用" = "Some storage information is unavailable";
 "其他账号的下载占用 %@。" = "Other accounts’ downloads use %@.";
 "应用数据" = "App Data";
@@ -472,7 +472,7 @@
 "同步目录不可用" = "Sync folder unavailable";
 "等待 iCloud 下载" = "Waiting for iCloud download";
 "同步数据损坏" = "Sync data is damaged";
-"同步数据需要更新版本的 Kumone" = "Sync data requires a newer version of Kumone";
+"同步数据需要更新版本的 Liltiva" = "Sync data requires a newer version of Liltiva";
 "接续需要登录同一网易云账号" = "Sign in to the same NetEase account to continue playback";
 "iCloud 账号已更改" = "iCloud account changed";
 

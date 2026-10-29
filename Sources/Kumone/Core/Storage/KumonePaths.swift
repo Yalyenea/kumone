@@ -1,5 +1,7 @@
 import Foundation
 
+// Storage names are persistent data identifiers. Preserve them across the
+// Liltiva rename so existing sessions, offline audio and caches stay reachable.
 enum KumonePaths {
     static var applicationSupport: URL {
         #if DEBUG
@@ -30,7 +32,7 @@ enum KumonePaths {
 
     static var networkCache: URL {
         if isOfflineUITest { return applicationSupport.appendingPathComponent("network-cache") }
-        let identifier = Bundle.main.bundleIdentifier ?? "im.missuo.Kumone"
+        let identifier = "im.missuo.Kumone"
         return FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
             .appendingPathComponent(identifier, isDirectory: true)
     }
