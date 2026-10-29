@@ -337,9 +337,10 @@ struct TrackRow: View {
 /// happened.
 struct PlayingIndicator: View {
     var animating: Bool
+    @ObservedObject private var windowVisibility = MainWindowVisibility.shared
 
     var body: some View {
-        SpectrumBars(animating: animating)
+        SpectrumBars(animating: animating && windowVisibility.isVisible)
             .frame(width: SpectrumBarsView.width, height: SpectrumBarsView.maxHeight)
     }
 }
@@ -385,6 +386,14 @@ final class SpectrumBarsView: PlatformView {
 
     deinit { timer?.invalidate() }
 
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        // Native table reuse can detach a cell before SwiftUI updates its state.
+        // A detached indicator has no visible frames to deliver.
+        if window == nil { stop() }
+        else if animating { start() }
+    }
+
     private var hostLayer: CALayer? { layer }
 
     private func buildBars() {
@@ -417,7 +426,7 @@ final class SpectrumBarsView: PlatformView {
     }
 
     private func start() {
-        guard timer == nil else { return }
+        guard window != nil, timer == nil else { return }
         // Common mode so the bars keep moving while a list is being scrolled.
         let timer = Timer(timeInterval: 1.0 / 30, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }

@@ -119,6 +119,10 @@ final class ProgressiveLoader: NSObject, @unchecked Sendable {
     private let feed = ConverterFeed()
 
     private var fileHandle: FileHandle?
+    private var mirrorReader: FileHandle?
+    private var mirroredBytes: UInt64 = 0
+    private var mirrorReadOffset: UInt64 = 0
+    private var mirrorReadEnd: UInt64 = 0
     private var cacheAbandoned = false
     private var cancelled = false
     private var failed = false
@@ -140,22 +144,13 @@ final class ProgressiveLoader: NSObject, @unchecked Sendable {
     // `.part` mirror. Instead the transfer keeps flowing — bytes are still
     // written to the `.part` file on arrival — and only *parsing/decoding*
     // pauses, which is what actually bounds decoded-but-unplayed PCM.
-    // Arrived-but-unparsed bytes wait in `backlog`.
-    private var backlog = Data()
-    /// How far into `backlog` the drain has got. Consuming by offset rather
-    /// than `removeFirst` per 32 KB step matters: while decoding is suspended
-    /// the transfer keeps running, so `backlog` grows to the whole remaining
-    /// file and a per-step `removeFirst` memmoves tens of megabytes on every
-    /// one of thousands of steps. The prefix is reclaimed in one go once it
-    /// passes half the buffer (see `compactBacklogIfNeeded`).
-    private var backlogOffset = 0
+    // Read waiting bytes from the existing mirror, without writing a second
+    // copy. The independent FIFO is only needed after seek or mirror failure.
+    private var backlog: ProgressiveByteBacklog?
     /// The transfer ended cleanly but `backlog` may still hold undecoded
     /// bytes; completion is surfaced once the backlog drains.
     private var networkDone = false
     private var drainScheduled = false
-    /// Parse the backlog in slices this big, re-queued between slices, so a
-    /// new suspend request can interleave before PCM overshoots high water.
-    private static let drainChunkBytes = 32 * 1024
 
     // MARK: - Cross-thread estimates (guarded by statLock)
 
@@ -283,6 +278,17 @@ final class ProgressiveLoader: NSObject, @unchecked Sendable {
             return
         }
         fileHandle = handle
+        do {
+            // A separate open gives the reader its own cursor. The descriptor
+            // remains valid when cache promotion moves or unlinks the path.
+            mirrorReader = try FileHandle(forReadingFrom: partURL)
+        } catch {
+            // Cache availability must not decide whether audio can play.
+            // Without an independent reader, use the existing unmirrored path.
+            try? handle.close()
+            fileHandle = nil
+            cacheAbandoned = true
+        }
         startRequest(rangeOffset: nil)
     }
 
@@ -303,6 +309,7 @@ final class ProgressiveLoader: NSObject, @unchecked Sendable {
             AudioConverterDispose(converter)
             self.converter = nil
         }
+        clearBacklog()
     }
 
     private func seekOnQueue(to seconds: TimeInterval) {
@@ -681,9 +688,12 @@ extension ProgressiveLoader: URLSessionDataDelegate {
         guard dataTask === task, !cancelled, !failed, streamID != nil else { return }
         // Mirror to disk immediately, suspended or not — the `.part` file
         // stays a contiguous copy of everything received.
+        var mirroredStart: UInt64?
         if !cacheAbandoned, let fileHandle {
             do {
                 try fileHandle.write(contentsOf: data)
+                mirroredStart = mirroredBytes
+                mirroredBytes += UInt64(data.count)
             } catch {
                 // Losing the cache mirror is not fatal for playback.
                 cacheAbandoned = true
@@ -694,7 +704,19 @@ extension ProgressiveLoader: URLSessionDataDelegate {
         if suspended || backlogRemaining > 0 {
             // Paused (or a resume drain is still catching up): keep byte
             // order by appending behind the backlog instead of parsing now.
-            backlog.append(data)
+            do {
+                if let mirroredStart {
+                    if mirrorReadOffset == mirrorReadEnd { mirrorReadOffset = mirroredStart }
+                    mirrorReadEnd = mirroredBytes
+                } else {
+                    // Keep the previous mirror range first. If a write failed
+                    // partway through, enqueue this entire callback exactly once.
+                    if backlog == nil { backlog = try ProgressiveByteBacklog() }
+                    try backlog?.append(data)
+                }
+            } catch {
+                fail(error)
+            }
         } else {
             parseOnQueue(data)
         }
@@ -747,26 +769,20 @@ extension ProgressiveLoader: URLSessionDataDelegate {
     }
 
     /// Bytes that have arrived but not yet been handed to the parser.
-    private var backlogRemaining: Int { backlog.count - backlogOffset }
+    private var backlogRemaining: UInt64 {
+        mirrorReadEnd - mirrorReadOffset + (backlog?.remainingBytes ?? 0)
+    }
 
     private func clearBacklog() {
-        backlog = Data()
-        backlogOffset = 0
+        backlog?.close()
+        backlog = nil
+        try? mirrorReader?.close()
+        mirrorReader = nil
+        mirrorReadOffset = 0
+        mirrorReadEnd = 0
     }
 
-    /// Reclaim the already-parsed prefix once it is worth a memmove: at the
-    /// halfway mark the copy costs no more than what it frees, which keeps the
-    /// whole drain linear instead of quadratic.
-    private func compactBacklogIfNeeded() {
-        guard backlogOffset > 0 else { return }
-        if backlogRemaining == 0 {
-            clearBacklog()
-        } else if backlogOffset * 2 >= backlog.count {
-            backlog.removeFirst(backlogOffset)
-            backlogOffset = 0
-        }
-    }
-
+    /// Re-queue between 32 KiB reads so new backpressure can interleave.
     private func drainStep() {
         drainScheduled = false
         guard !cancelled, !failed else {
@@ -775,14 +791,23 @@ extension ProgressiveLoader: URLSessionDataDelegate {
         }
         guard !suspended else { return } // re-paused mid-drain; resume reschedules
         if backlogRemaining > 0 {
-            // `Data` slices keep their parent's indices, so the range is taken
-            // from `startIndex` and `subdata` hands the parser a zero-based copy.
-            let lo = backlog.startIndex + backlogOffset
-            let hi = min(lo + Self.drainChunkBytes, backlog.endIndex)
-            let chunk = backlog.subdata(in: lo..<hi)
-            backlogOffset += chunk.count
-            compactBacklogIfNeeded()
-            parseOnQueue(chunk)
+            do {
+                if mirrorReadOffset < mirrorReadEnd {
+                    guard let mirrorReader else { throw ProgressiveByteBacklog.BacklogError.closed }
+                    try mirrorReader.seek(toOffset: mirrorReadOffset)
+                    let count = Int(min(UInt64(ProgressiveByteBacklog.chunkBytes), mirrorReadEnd - mirrorReadOffset))
+                    guard let chunk = try mirrorReader.read(upToCount: count), !chunk.isEmpty else {
+                        throw ProgressiveByteBacklog.BacklogError.unexpectedEndOfFile
+                    }
+                    mirrorReadOffset += UInt64(chunk.count)
+                    parseOnQueue(chunk)
+                } else if let chunk = try backlog?.readChunk() {
+                    parseOnQueue(chunk)
+                }
+            } catch {
+                fail(error)
+                return
+            }
             guard !failed else {
                 clearBacklog()
                 return

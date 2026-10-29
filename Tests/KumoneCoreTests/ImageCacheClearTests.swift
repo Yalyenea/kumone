@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 @testable import KumoneCore
@@ -68,5 +69,100 @@ struct ImageCacheClearTests {
         #expect(cache.cachedImage(for: url) == nil)
         #expect(await metadata.artwork(url: url, scope: "a") == png)
         #expect(await cache.image(for: url) != nil)
+    }
+
+    @Test func disablingRetentionPurgesOnlyMemoryAndCanRestoreCaching() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("kumone-image-retention-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [DeferredImageProtocol.self]
+        let cache = ImageCache(directory: root, session: URLSession(configuration: config), offlineArtwork: { _ in nil })
+        let url = URL(string: "https://example.test/image.png")!
+        let first = Task { await cache.image(for: url) }
+        try await pendingRequest().finish(png)
+        #expect(await first.value != nil)
+        #expect(cache.cachedImage(for: url) != nil)
+        let diskFiles = try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)
+        let diskFile = try #require(diskFiles.first)
+        #expect(diskFiles.count == 1)
+
+        await cache.setMemoryRetentionEnabled(false)
+        #expect(cache.cachedImage(for: url) == nil)
+        #expect(try Data(contentsOf: diskFile) == png)
+        #expect(await cache.image(for: url) != nil)
+        #expect(cache.cachedImage(for: url) == nil)
+
+        await cache.setMemoryRetentionEnabled(true)
+        #expect(await cache.image(for: url) != nil)
+        #expect(cache.cachedImage(for: url) != nil)
+        #expect(try Data(contentsOf: diskFile) == png)
+    }
+
+    @Test(arguments: [false, true])
+    func disablingRetentionLeavesSharedRequestRunningWithoutLateMemoryRefill(startedWhileHidden: Bool) async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("kumone-image-inflight-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [DeferredImageProtocol.self]
+        let cache = ImageCache(directory: root, session: URLSession(configuration: config), offlineArtwork: { _ in nil })
+        let url = URL(string: "https://example.test/image.png")!
+        if startedWhileHidden { await cache.setMemoryRetentionEnabled(false) }
+        let first = Task { await cache.image(for: url) }
+        let pending = try await pendingRequest()
+
+        await cache.setMemoryRetentionEnabled(false)
+        // Requests started before or during hiding must finish for their caller,
+        // without restoring decoded memory when the window has already returned.
+        await cache.setMemoryRetentionEnabled(true)
+        pending.finish(png)
+        #expect(await first.value != nil)
+        #expect(cache.cachedImage(for: url) == nil)
+        let diskFiles = try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)
+        #expect(diskFiles.count == 1)
+        #expect(try Data(contentsOf: #require(diskFiles.first)) == png)
+
+        #expect(await cache.image(for: url) != nil)
+        #expect(cache.cachedImage(for: url) != nil)
+    }
+
+    @Test @MainActor func hidingReleasesViewPixelsWithoutASwiftUIUpdate() {
+        let visibility = MainWindowVisibility()
+        let url = URL(string: "https://example.test/view-cover.png")!
+        let storage = CachedImageStorage(url: url, visibility: visibility)
+        var image: PlatformImage? = PlatformImage(size: NSSize(width: 2, height: 2))
+        weak var retainedImage = image
+        storage.reset(for: url, image: image)
+        image = nil
+        #expect(retainedImage != nil)
+
+        visibility.update(isVisible: false, isOnScreen: false)
+        #expect(storage.state.image(for: url) == nil)
+        #expect(retainedImage == nil)
+        #expect(!storage.isOnScreen)
+    }
+
+    @Test @MainActor func returningRequiresFreshPixelsEvenWhenSwiftUIMissesTheHiddenInterval() {
+        let visibility = MainWindowVisibility()
+        let url = URL(string: "https://example.test/view-cover.png")!
+        let storage = CachedImageStorage(url: url, visibility: visibility)
+        let image = PlatformImage(size: NSSize(width: 2, height: 2))
+        storage.reset(for: url, image: image)
+        let previousGeneration = storage.generation
+
+        visibility.update(isVisible: false, isOnScreen: false)
+        storage.finish(image, for: url)
+        storage.reset(for: url, image: image)
+        #expect(storage.state.image(for: url) == nil)
+
+        visibility.update(isVisible: true, isOnScreen: true)
+        #expect(storage.isOnScreen)
+        #expect(storage.generation != previousGeneration)
+        #expect(storage.state.image(for: url) == nil)
+        storage.finish(image, for: url)
+        #expect(storage.state.image(for: url) == nil)
+
+        storage.reset(for: url)
+        storage.finish(image, for: url)
+        #expect(storage.state.image(for: url) === image)
     }
 }

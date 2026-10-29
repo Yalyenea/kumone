@@ -22,14 +22,28 @@ final class NowPlayingArtworkStore: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var artworkURL: String?
     private var artworkIsNeeded = false
+    private var isOnScreen: Bool
 
     init(
         player: PlayerService?,
+        visibility: MainWindowVisibility? = nil,
         imageLoader: @escaping ImageLoader = { url, onCachedImage in
             await ImageCache.shared.image(for: url, onCachedImage: onCachedImage)
         }
     ) {
         self.imageLoader = imageLoader
+        let visibility = visibility ?? .shared
+        isOnScreen = visibility.isOnScreen
+        // Window hiding can suspend SwiftUI tasks before they release artwork.
+        // Observe the window directly so pixel lifetime follows its visibility.
+        visibility.$isOnScreen
+            .removeDuplicates()
+            .sink { [weak self] isOnScreen in
+                guard let self, self.isOnScreen != isOnScreen else { return }
+                self.isOnScreen = isOnScreen
+                self.refreshArtworkDemand()
+            }
+            .store(in: &cancellables)
 
         guard let player else { return }
         player.$currentTrack
@@ -58,8 +72,11 @@ final class NowPlayingArtworkStore: ObservableObject {
     func setArtworkNeeded(_ artworkIsNeeded: Bool) {
         guard self.artworkIsNeeded != artworkIsNeeded else { return }
         self.artworkIsNeeded = artworkIsNeeded
+        refreshArtworkDemand()
+    }
 
-        if artworkIsNeeded {
+    private func refreshArtworkDemand() {
+        if artworkIsNeeded && isOnScreen {
             loadArtworkForCurrentTrack()
         } else {
             cancelArtworkLoad()
@@ -69,7 +86,7 @@ final class NowPlayingArtworkStore: ObservableObject {
     }
 
     private func loadArtworkForCurrentTrack() {
-        guard artworkIsNeeded else { return }
+        guard artworkIsNeeded && isOnScreen else { return }
 
         guard let trackID,
               let artworkURL,
@@ -82,6 +99,7 @@ final class NowPlayingArtworkStore: ObservableObject {
             artworkURL: artworkURL,
             imageURL: imageURL
         )
+        guard self.request != request else { return }
         self.request = request
         let imageLoader = imageLoader
         loadTask = Task { [weak self] in

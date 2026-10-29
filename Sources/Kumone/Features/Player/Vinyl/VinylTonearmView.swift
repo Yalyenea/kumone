@@ -205,9 +205,28 @@ final class TonearmMotionController {
     /// on the layer negated.
     private static func zRotation(engaged: Bool, progress: Double) -> Double {
         let fraction = progress.isFinite ? min(1, max(0, progress)) : 0
-        // This sweep keeps the stylus between the outer groove and the label edge.
-        let trackingDegrees = -18 + 20 * fraction
-        return -(engaged ? trackingDegrees : parkedDegrees) * .pi / 180
+        guard engaged else { return -parkedDegrees * .pi / 180 }
+
+        // Advance across the groove radius, rather than interpolating angles:
+        // half a track should put the stylus halfway across the playable band.
+        // Coordinates are normalized by disc diameter and follow the turntable,
+        // arm path and the lower contact point of the headshell above.
+        let armHeight = 0.56
+        let armWidth = armHeight * 0.58
+        let headAngle = 39.0 * .pi / 180
+        let contactOffset = armHeight * 0.15 * 0.35
+        let tipX = armWidth * 0.40 + contactOffset * sin(headAngle)
+        let tipY = armHeight * 0.70 + contactOffset * cos(headAngle)
+        let centerX = -0.03
+        let centerY = 0.72 - armWidth * 0.12
+        let armLength = hypot(tipX, tipY)
+        let centerDistance = hypot(centerX, centerY)
+        // Leave a little clearance inside the rim and outside the label.
+        let radius = 0.48 + (0.325 - 0.48) * fraction
+        let cosine = (armLength * armLength + centerDistance * centerDistance - radius * radius)
+            / (2 * armLength * centerDistance)
+        let angle = atan2(centerY, centerX) - atan2(tipY, tipX) - acos(cosine)
+        return -angle
     }
 }
 
@@ -266,6 +285,9 @@ private final class TonearmHost<Content: View>: NSView {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
     func update(arm: Content, width: CGFloat, height: CGFloat, pivotY: CGFloat) {
+        // The artwork depends only on geometry; clock ticks move its layer.
+        // Replacing the hosting root on every tick schedules needless layout.
+        guard width != self.width || height != self.height || pivotY != self.pivotY else { return }
         self.arm.rootView = arm
         self.width = width
         self.height = height

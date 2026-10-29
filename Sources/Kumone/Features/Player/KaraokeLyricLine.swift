@@ -185,8 +185,10 @@ final class KaraokeLineView: NSView {
         // 30 fps is indistinguishable, and frames whose opacities have not
         // moved are skipped outright.
         guard now - lastDraw >= 1.0 / 30 else { return }
-        guard content.wipeHasMoved(at: PlayerService.shared.livePlaybackTime) else { return }
+        // Throttle the opacity check too: a stationary wipe otherwise repeats
+        // the character calculations on every display callback.
         lastDraw = now
+        guard content.wipeHasMoved(at: PlayerService.shared.livePlaybackTime) else { return }
         needsDisplay = true
     }
 }

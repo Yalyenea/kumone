@@ -90,14 +90,17 @@ struct ProgressiveLoaderFLACTests {
     // by minutes; tying the commit to `onCompleted` left the first track of
     // every fresh playlist without an analysis (field: .part files never
     // committed, `order commit … because=noOutgoingAnalysis`).
-    @Test func mirrorCompletesWhileDecodingIsSuspended() throws {
+    @Test(arguments: [false, true])
+    func mirrorCompletesWhileDecodingIsSuspended(removeCommittedFile: Bool) throws {
         let caf = try Fixtures.writeSineCAF(seconds: 6, name: "flac-src-mirror")
         let flac = try Self.flacFixture(from: caf, name: "stream-mirror")
         let payload = try Data(contentsOf: flac)
         let server = try TestHTTPServer(serving: payload)
         defer { server.stop() }
         let partURL = Fixtures.dir.appendingPathComponent("flac-mirror.part")
+        let committedURL = Fixtures.dir.appendingPathComponent("flac-mirror-complete.flac")
         try? FileManager.default.removeItem(at: partURL)
+        try? FileManager.default.removeItem(at: committedURL)
 
         let output = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 2)!
         let engineQueue = DispatchQueue(label: "flac-test.mirror")
@@ -107,20 +110,36 @@ struct ProgressiveLoaderFLACTests {
             var mirrorBytes: Int64?
             var completedBeforeMirror = false
             var completed = false
+            var error: String?
+            var decodedFrames: AVAudioFramePosition = 0
         }
         let box = Box()
         let mirrored = DispatchSemaphore(value: 0)
-        // Backpressure from the first buffer on, exactly like a deck that has
-        // its low-water mark covered: decoding stops, the transfer does not.
-        loader.onBuffer = { [weak loader] _ in loader?.setDownloadSuspended(true) }
+        loader.onBuffer = { buffer in box.decodedFrames += AVAudioFramePosition(buffer.frameLength) }
         loader.onMirrorCompleted = { bytes in
             box.mirrorBytes = bytes
+            // Cache promotion moves the mirror before decoding catches up.
+            // The open reader must survive promotion and even cache eviction.
+            do {
+                try FileManager.default.moveItem(at: partURL, to: committedURL)
+                if removeCommittedFile {
+                    try FileManager.default.removeItem(at: committedURL)
+                }
+            }
+            catch { box.error = error.localizedDescription }
+            mirrored.signal()
+        }
+        loader.onError = { error in
+            box.error = error.localizedDescription
             mirrored.signal()
         }
         loader.onCompleted = {
             if box.mirrorBytes == nil { box.completedBeforeMirror = true }
             box.completed = true
         }
+        // Pause before any bytes arrive. This guarantees the test reads the
+        // queued mirror range rather than parsing the short fixture directly.
+        loader.setDownloadSuspended(true)
         loader.start()
         defer { loader.cancel() }
 
@@ -129,9 +148,13 @@ struct ProgressiveLoaderFLACTests {
         engineQueue.sync {}
         #expect(!box.completedBeforeMirror)
         #expect(!box.completed, "decoding was suspended, so the parse cannot have finished")
+        #expect(box.decodedFrames == 0)
+        #expect(box.error == nil)
         #expect(box.mirrorBytes == Int64(payload.count))
-        #expect(try Data(contentsOf: partURL) == payload,
-                "the .part must be a complete, byte-identical copy once reported")
+        if !removeCommittedFile {
+            #expect(try Data(contentsOf: committedURL) == payload,
+                    "the committed mirror must contain every network byte")
+        }
 
         // Releasing the backpressure still finishes the parse, reporting the
         // mirror as committed.
@@ -142,7 +165,9 @@ struct ProgressiveLoaderFLACTests {
             Thread.sleep(forTimeInterval: 0.05)
             engineQueue.sync {}
         }
+        #expect(box.error == nil)
         #expect(box.completed)
+        #expect(box.decodedFrames > 0)
     }
 
     // FLAC 44.1k stereo streams to completion and decodes every frame.

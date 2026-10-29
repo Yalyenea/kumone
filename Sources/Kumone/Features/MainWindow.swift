@@ -421,6 +421,11 @@ struct MainWindowConfigurator: NSViewRepresentable {
         private var hasScheduledAmbientConfiguration = false
         private var titlebarFadedOut = false
         private var windowToolbarHidden = false
+        private var visibilityObservers: [NSObjectProtocol] = []
+
+        deinit {
+            visibilityObservers.forEach { NotificationCenter.default.removeObserver($0) }
+        }
         /// The item views the immersive page swaps out, kept so the home page
         /// gets them back; see `suppressImmersiveToolbarItems`.
         private var hiddenToolbarItemViews: [String: NSView] = [:]
@@ -577,12 +582,14 @@ struct MainWindowConfigurator: NSViewRepresentable {
         /// it back — and tell `MainWindowVisibility`.
         private func observeWindowVisibility(of window: NSWindow) {
             let center = NotificationCenter.default
+            visibilityObservers.forEach { center.removeObserver($0) }
+            visibilityObservers.removeAll()
             for name in [
                 NSWindow.didMiniaturizeNotification,
                 NSWindow.didDeminiaturizeNotification,
                 NSWindow.didChangeOcclusionStateNotification
             ] {
-                center.addObserver(
+                visibilityObservers.append(center.addObserver(
                     forName: name,
                     object: window,
                     queue: .main
@@ -590,7 +597,14 @@ struct MainWindowConfigurator: NSViewRepresentable {
                     Task { @MainActor in
                         self?.refreshWindowVisibility()
                     }
-                }
+                })
+            }
+            // Hiding the application need not change NSWindow.isVisible.
+            // Observe the app lifecycle as well so Cmd-H releases the page.
+            for name in [NSApplication.didHideNotification, NSApplication.didUnhideNotification] {
+                visibilityObservers.append(center.addObserver(forName: name, object: NSApp, queue: .main) { [weak self] _ in
+                    Task { @MainActor in self?.refreshWindowVisibility() }
+                })
             }
         }
 
@@ -600,7 +614,7 @@ struct MainWindowConfigurator: NSViewRepresentable {
         /// (#128 performance work).
         private func refreshWindowVisibility() {
             guard let window else { return }
-            let onScreen = window.isVisible && !window.isMiniaturized
+            let onScreen = window.isVisible && !window.isMiniaturized && !NSApp.isHidden
             MainWindowVisibility.shared.update(
                 isVisible: onScreen && window.occlusionState.contains(.visible),
                 isOnScreen: onScreen

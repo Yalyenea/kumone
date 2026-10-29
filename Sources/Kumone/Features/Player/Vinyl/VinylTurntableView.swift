@@ -201,6 +201,8 @@ private final class VinylDiscHost: NSView {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
     func update(artworkImage: PlatformImage?, size: CGFloat) {
+        // Cursor and visibility changes must not rebuild the static grooves.
+        guard record.rootView.artworkImage !== artworkImage || record.rootView.size != size else { return }
         record.rootView = VinylRecordView(artworkImage: artworkImage, size: size)
     }
 

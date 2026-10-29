@@ -140,6 +140,7 @@ final class DownloadManager: ObservableObject {
     private var networkRetryTasks: [UUID: Task<Void, Never>] = [:]
     private var workers: [UUID: (attempt: UUID, task: Task<Void, Never>)] = [:]
     private var displayWorkers: [UUID: (id: UUID, task: Task<Void, Never>)] = [:]
+    private var pendingDisplayJobs: Set<UUID> = []
     private var restoration: Task<Void, Never>?
     private var eventTask: Task<Void, Never>?
     private var monitor: NWPathMonitor?
@@ -263,6 +264,7 @@ final class DownloadManager: ObservableObject {
         libraryMergedTrackIDs = []
         accountScope = scope
         offlineTracks = []
+        pendingDisplayJobs.removeAll()
         for job in catalog.jobs where job.accountScope != scope {
             displayWorkers.removeValue(forKey: job.id)?.task.cancel()
         }
@@ -478,6 +480,8 @@ final class DownloadManager: ObservableObject {
         defer { batchOperations -= 1; schedule() }
         let cancelledIDs = Set(cancelled.map(\.id))
         catalog.jobs.removeAll { cancelledIDs.contains($0.id) }
+        pendingDisplayJobs.subtract(cancelledIDs)
+        scheduleMetadata()
         progress.values = progress.values.filter { !cancelledIDs.contains($0.key) }
         if !deletingTracks.isEmpty { offlineTracks.removeAll { deletingTracks.contains($0.id) } }
         publish()
@@ -570,6 +574,8 @@ final class DownloadManager: ObservableObject {
         eventTask?.cancel()
         workers.values.forEach { $0.task.cancel() }
         displayWorkers.values.forEach { $0.task.cancel() }
+        displayWorkers.removeAll()
+        pendingDisplayJobs.removeAll()
         monitor?.cancel()
     }
 
@@ -851,20 +857,47 @@ final class DownloadManager: ObservableObject {
     }
 
     private func fetchMetadata(_ job: DownloadJob) {
-        guard job.accountScope == accountScope, !job.owners.isEmpty, network.permits(job), displayWorkers[job.id] == nil else { return }
-        let workerID = UUID()
-        displayWorkers[job.id] = (workerID, Task {
-            defer { if displayWorkers[job.id]?.id == workerID { displayWorkers[job.id] = nil } }
-            guard !Task.isCancelled else { return }
-            await metadataFetcher(job.track, job.accountScope)
-            guard !Task.isCancelled, displayWorkers[job.id]?.id == workerID else { return }
-            let available = await metadata.hasDisplayData(track: job.track, scope: job.accountScope)
-            guard !Task.isCancelled, displayWorkers[job.id]?.id == workerID else { return }
-            if let i = index(job.id), catalog.jobs[i].accountScope == accountScope {
-                catalog.jobs[i].metadataPending = !available
-                publish(); try? await persist()
-            }
-        })
+        // Preparation may finish the display data before the audio arrives.
+        // Completed metadata stays valid; unsuccessful fetches keep this flag set.
+        guard let i = index(job.id), catalog.jobs[i].metadataPending,
+              catalog.jobs[i].accountScope == accountScope, !catalog.jobs[i].owners.isEmpty,
+              network.permits(catalog.jobs[i]), displayWorkers[job.id] == nil else { return }
+        pendingDisplayJobs.insert(job.id)
+        scheduleMetadata()
+    }
+
+    private func scheduleMetadata() {
+        // Queue IDs rather than tasks or image data: reconnecting a large
+        // library must not allocate a cover request for every pending song.
+        guard isReady else { return }
+        while displayWorkers.count < 2, !pendingDisplayJobs.isEmpty {
+            let jobID = pendingDisplayJobs.removeFirst()
+            guard let i = index(jobID) else { continue }
+            let job = catalog.jobs[i]
+            guard job.metadataPending, job.accountScope == accountScope, !job.owners.isEmpty,
+                  network.permits(job), displayWorkers[jobID] == nil else { continue }
+            let workerID = UUID()
+            displayWorkers[jobID] = (workerID, Task {
+                defer {
+                    if displayWorkers[jobID]?.id == workerID {
+                        displayWorkers[jobID] = nil
+                        // Failed jobs stay pending until another explicit event;
+                        // only already queued songs advance here.
+                        scheduleMetadata()
+                    }
+                }
+                guard !Task.isCancelled else { return }
+                await metadataFetcher(job.track, job.accountScope)
+                guard !Task.isCancelled, displayWorkers[jobID]?.id == workerID else { return }
+                let available = await metadata.hasDisplayData(track: job.track, scope: job.accountScope)
+                guard !Task.isCancelled, displayWorkers[jobID]?.id == workerID else { return }
+                if let i = index(jobID), catalog.jobs[i].accountScope == accountScope,
+                   !catalog.jobs[i].owners.isEmpty {
+                    catalog.jobs[i].metadataPending = !available
+                    publish(); try? await persist()
+                }
+            })
+        }
     }
 
     private func reconcileCompletedAssets() async {

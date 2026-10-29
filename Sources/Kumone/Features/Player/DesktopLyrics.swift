@@ -29,9 +29,6 @@ final class DesktopLyricsController {
             window.sharingType = .none // keep lyrics out of screenshots/recordings
             window.isReleasedWhenClosed = false
 
-            let host = NSHostingView(rootView: DesktopLyricsSurface())
-            host.layer?.backgroundColor = .clear
-            window.contentView = host
             self.window = window
 
             let center = NotificationCenter.default
@@ -48,12 +45,20 @@ final class DesktopLyricsController {
                 Task { @MainActor in self?.updateFrame() }
             })
         }
+        if !(window?.contentView is NSHostingView<DesktopLyricsSurface>) {
+            let host = NSHostingView(rootView: DesktopLyricsSurface())
+            host.layer?.backgroundColor = .clear
+            window?.contentView = host
+        }
         updateFrame()
         window?.orderFrontRegardless()
     }
 
     func hide() {
         window?.orderOut(nil)
+        // Ordering out preserves the hosting tree and its playback subscriptions.
+        // Rebuild on show so hidden lyrics do no work as the song advances.
+        window?.contentView = nil
     }
 
     func sync(with enabled: Bool) {

@@ -5,6 +5,24 @@ import QuartzCore
 
 @Suite("Vinyl Record Tests")
 struct VinylRecordTests {
+    @Test @MainActor func stylusTraversesThePlayableBandEvenly() throws {
+        let layer = CALayer()
+        let motion = TonearmMotionController(layer: layer, engaged: true, progress: 0)
+        // Reconstruct the displayed needle contact point in disc-diameter units.
+        // This checks radial travel, independently of the angle interpolation.
+        let headAngle: Double = 39 * .pi / 180
+        let contactOffset: Double = 0.56 * 0.15 * 0.35
+        let tipX: Double = 0.56 * 0.58 * 0.4 + contactOffset * sin(headAngle)
+        let tipY: Double = 0.56 * 0.7 + contactOffset * cos(headAngle)
+        for (progress, expectedRadius) in [(0.0, 0.48), (0.25, 0.44125), (0.5, 0.4025), (0.75, 0.36375), (1.0, 0.325)] {
+            motion.setEngaged(true, progress: progress, animated: false)
+            let angle = -(try #require(layer.value(forKeyPath: "transform.rotation.z") as? Double))
+            let x = 0.03 + tipX * cos(angle) - tipY * sin(angle)
+            let y = 0.56 * 0.58 * 0.12 + tipX * sin(angle) + tipY * cos(angle)
+            #expect(abs(hypot(x, y - 0.72) - expectedRadius) < 1e-10)
+        }
+    }
+
     @Test @MainActor func tonearmTracksProgressWithoutNeedingAPlayPauseChange() throws {
         let layer = CALayer()
         let motion = TonearmMotionController(layer: layer, engaged: true, progress: 0)

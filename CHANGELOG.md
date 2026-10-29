@@ -7,7 +7,7 @@
 `---` 分隔，随后是完整的**中文**部分（`### 新增` / `### 修复` / `### 改进`）。英文块与中文块
 的条目一一对应、顺序一致。（0.3.19 起采用此双语分块格式；更早的版本沿用旧的中英交替格式。）
 
-## Unreleased - 2026-10-26
+## Unreleased - 2026-10-29
 
 ### Added
 
@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- **macOS**: keep the vinyl stylus halfway across the playable band at half-track progress.
 - **macOS**: restore clicks on the now-playing layout and collapse buttons by removing the hidden navigation container; suppress unwanted focus rings while preserving text input and shortcut recording.
 - **macOS**: truncate long artist lists as one line with clickable names and a full-list tooltip; keep four-digit track numbers on one line in an aligned column.
 - **macOS**: preserve the playhead and paused state when changing audio quality, restore lyrics for paused sessions, and keep the song title readable against its playback background.
@@ -24,6 +25,8 @@
 
 ### Improved
 
+- **macOS**: reduce playback CPU work with stable lyric layouts and shorter transitions; stop hidden visual updates, release background artwork, bound metadata concurrency and avoid duplicate metadata requests.
+- **macOS**: bound compressed streaming backlog memory and reuse the existing audio cache for deferred decoding, avoiding duplicate writes during normal playback.
 - **macOS**: swipe horizontally on the now-playing page or playback bar to change tracks, with directional transitions and dedicated volume adjustment over the volume control; support pointer drags and two-finger trackpad gestures.
 - **macOS**: share one compact playback bar across browsing and now-playing pages, with centered transport controls, visible volume and output controls, and one button for ordered, shuffle and repeat-one modes.
 - **macOS**: restyle the vinyl player with fine grooves, a slim tonearm, an unobstructed album label and stationary reflections.
@@ -49,6 +52,7 @@
 
 ### 修复
 
+- **macOS**：修正唱臂轨迹，歌曲播放到一半时，针尖位于可播放音轨区域的中部。
 - **macOS**：移除隐藏导航栏留下的遮挡容器，恢复播放页模式和收起按钮的点击；消除多余焦点框，保留文字输入和快捷键录制。
 - **macOS**：歌手名单过长时整行省略，保留姓名链接并支持悬停查看完整名单；四位数歌曲编号保持单行、整列对齐。
 - **macOS**：切换音质时保留播放进度与暂停状态，恢复暂停会话时加载歌词，歌名颜色跟随播放背景保持可读。
@@ -56,6 +60,8 @@
 
 ### 改进
 
+- **macOS**：通过稳定歌词布局和缩短过渡降低播放 CPU 开销；停止不可见动画、释放后台封面、限制元数据请求并发并避免重复获取。
+- **macOS**：限制流式音频压缩积压的内存占用，并复用已有音频缓存延后解码，减少正常播放时的重复写盘。
 - **macOS**：播放页和播放器底栏支持左右滑动切歌，加入跟手与定向过渡动画；音量区域内滑动调整音量，支持鼠标拖动和触控板双指滑动。
 - **macOS**：浏览页与播放页共用紧凑底栏，播放控制居中，音量和输出设备直接可见；顺序、随机和单曲循环合为一个切换按钮。
 - **macOS**：黑胶播放器采用细密刻纹、纤细唱臂、完整封面和固定反光。

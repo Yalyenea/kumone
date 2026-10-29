@@ -5,13 +5,9 @@ struct NowPlayingView: View {
     let onOpenDestination: (Destination) -> Void
 
     @EnvironmentObject private var player: PlayerService
-    @ObservedObject private var lyricsCursor = PlayerService.shared.lyricsCursor
     @EnvironmentObject private var settings: SettingsManager
     @EnvironmentObject private var artworkStore: NowPlayingArtworkStore
     @EnvironmentObject private var nowPlayingIdle: NowPlayingIdleController
-
-    @State private var activeIndex: Int?
-    @State private var isUserScrolling = false
 
     var body: some View {
         GeometryReader { geo in
@@ -147,19 +143,6 @@ struct NowPlayingView: View {
         .controlSize(.small)
         .frame(width: 220)
         .padding(12)
-    }
-
-    /// Jump straight to the line the song is on. Used when the view appears,
-    /// where waiting for the next line change would leave the lyrics parked at
-    /// the top. Scrolling is deferred a turn: the list has not laid out yet
-    /// while `onAppear` runs, and `scrollTo` on an unlaid list does nothing.
-    private func adoptCursor(proxy: ScrollViewProxy) {
-        let index = lyricsCursor.activeIndex
-        activeIndex = index
-        guard let index else { return }
-        DispatchQueue.main.async {
-            proxy.scrollTo(index, anchor: .center)
-        }
     }
 
     // MARK: - Backdrop
@@ -366,9 +349,37 @@ struct NowPlayingView: View {
         }
     }
 
-    // MARK: - Lyrics column
-
     private func lyricsColumn(centered: Bool) -> some View {
+        NowPlayingLyricsColumn(centered: centered)
+    }
+}
+
+/// Keep line changes inside the lyrics tree: the backdrop and hosted record
+/// have no dependency on the playback cursor.
+private struct NowPlayingLyricsColumn: View {
+    let centered: Bool
+    @EnvironmentObject private var player: PlayerService
+    @EnvironmentObject private var settings: SettingsManager
+    @ObservedObject private var lyricsCursor = PlayerService.shared.lyricsCursor
+    @ObservedObject private var windowVisibility = MainWindowVisibility.shared
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var activeIndex: Int?
+    @State private var isUserScrolling = false
+
+    /// Jump straight to the line the song is on. Used when the view appears,
+    /// where waiting for the next line change would leave the lyrics parked at
+    /// the top. Scrolling is deferred a turn: the list has not laid out yet
+    /// while `onAppear` runs, and `scrollTo` on an unlaid list does nothing.
+    private func adoptCursor(proxy: ScrollViewProxy) {
+        let index = lyricsCursor.activeIndex
+        activeIndex = index
+        guard let index else { return }
+        DispatchQueue.main.async {
+            proxy.scrollTo(index, anchor: .center)
+        }
+    }
+
+    var body: some View {
         GeometryReader { proxy in
             lyricContent(verticalInset: max(32, proxy.size.height * 0.35), centered: centered)
         }
@@ -379,7 +390,9 @@ struct NowPlayingView: View {
         if let lyrics = player.lyrics, !lyrics.isEmpty {
             ScrollViewReader { proxy in
                 ScrollView(showsIndicators: false) {
-                    LazyVStack(alignment: centered ? .center : .leading, spacing: 26) {
+                    // A song is a bounded list. Lay out its lines once instead
+                    // of estimating and materializing rows during every scroll.
+                    VStack(alignment: centered ? .center : .leading, spacing: 26) {
                         Color.clear.frame(height: verticalInset)
                         ForEach(lyrics.lines) { line in
                             bigLyricLine(line, isActive: line.id == activeIndex, centered: centered)
@@ -404,7 +417,11 @@ struct NowPlayingView: View {
                     guard index != activeIndex else { return }
                     activeIndex = index
                     guard !isUserScrolling, let index else { return }
-                    withAnimation(.spring(response: 0.8, dampingFraction: 0.85)) {
+                    // A long spring keeps laying out the scroll view after the
+                    // line is visually settled. Finish the motion promptly and
+                    // skip unseen frames when another window covers the player.
+                    withAnimation(windowVisibility.isVisible && !reduceMotion
+                                  ? .easeOut(duration: 0.28) : nil) {
                         proxy.scrollTo(index, anchor: .center)
                     }
                 }
@@ -448,29 +465,31 @@ struct NowPlayingView: View {
             VStack(alignment: centered ? .center : .leading, spacing: 5) {
                 if settings.lyricsAnnotation == .romaji, let romaji = line.romaji {
                     Text(romaji)
-                        .font(.system(size: isActive ? 15 : 13, weight: .medium))
+                        .font(.system(size: 15, weight: .medium))
                         .foregroundStyle(.white.opacity(isActive ? 0.7 : 0.35))
                 }
                 LyricMainText(
                     line: line, isActive: isActive,
-                    size: isActive ? 26 : 20, weight: isActive ? .bold : .semibold,
+                    size: 26, weight: .bold,
                     verbatim: settings.verbatimLyrics,
                     alignment: centered ? .center : .left
                 )
                 if settings.showLyricsTranslation, let translation = line.translation {
                     Text(translation)
-                        .font(.system(size: isActive ? 16 : 14, weight: .medium))
+                        .font(.system(size: 16, weight: .medium))
                         .foregroundStyle(.white.opacity(isActive ? 0.7 : 0.35))
                 }
             }
             .multilineTextAlignment(centered ? .center : .leading)
             .frame(maxWidth: .infinity, alignment: centered ? .center : .leading)
             .contentShape(Rectangle())
-            .scaleEffect(isActive ? 1.02 : 1, anchor: centered ? .center : .leading)
+            // Reserve the highlighted line's geometry. Animating font size and
+            // weight rebuilt glyph outlines and reflowed the list every frame.
+            .scaleEffect(isActive ? 1.02 : 20.0 / 26.0, anchor: centered ? .center : .leading)
         }
         .buttonStyle(.plain)
-        .animation(.spring(response: 0.4, dampingFraction: 0.8), value: isActive)
-        .animation(.easeOut(duration: 0.25), value: isUserScrolling)
+        .animation(windowVisibility.isVisible && !reduceMotion
+                   ? .easeOut(duration: 0.18) : nil, value: isActive)
     }
 }
 

@@ -102,6 +102,17 @@ private final class DownloadHarness {
         await manager.enqueue(tracks: [track], owner: owner, name: owner.hasPrefix("playlist:") ? owner : nil,
                               quality: quality, allowsMetered: false)
     }
+    func restoreMetadataJobs(count: Int) async throws -> [DownloadJob] {
+        let jobs = try (1...count).map { id in
+            let track = try JSONDecoder().decode(Track.self, from: Data("{\"id\":\(id),\"name\":\"Track\"}".utf8))
+            var job = DownloadJob(scope: "test-account", track: track, quality: "exhigh", owner: "single:\(id)", allowsMetered: true)
+            job.status = .complete
+            return job
+        }
+        try await persistence.save(DownloadCatalog(jobs: jobs))
+        await manager.start()
+        return jobs
+    }
     func close() { manager.shutdown(); transport.continuation.finish(); try? FileManager.default.removeItem(at: root) }
 }
 
@@ -136,9 +147,140 @@ private final class DownloadRetryClock {
     func finish() { while !pending.isEmpty { advance() } }
 }
 
+@MainActor
+private final class DownloadMetadataGate {
+    private(set) var started: [Int] = []
+    private(set) var active: Set<Int> = []
+    private(set) var peak = 0
+    private var pending: [Int: CheckedContinuation<Void, Never>] = [:]
+
+    func wait(_ trackID: Int) async {
+        started.append(trackID)
+        active.insert(trackID)
+        peak = max(peak, active.count)
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                pending[trackID] = continuation
+                if Task.isCancelled { release(trackID) }
+            }
+        } onCancel: {
+            Task { @MainActor in self.release(trackID) }
+        }
+        active.remove(trackID)
+    }
+    func release(_ trackID: Int) { pending.removeValue(forKey: trackID)?.resume() }
+    func releaseAll() { for id in Array(pending.keys) { release(id) } }
+}
+
 @Suite("Persistent downloads", .serialized, .timeLimit(.minutes(1)))
 @MainActor
 struct DownloadManagerTests {
+    @Test(arguments: [true, false])
+    func metadataQueueBoundsConcurrencyAndDrainsWithoutRetryingFailures(succeeds: Bool) async throws {
+        let gate = DownloadMetadataGate()
+        var metadata: OfflineMetadataStore?
+        let lyrics = try JSONDecoder().decode(LyricResponse.self, from: Data("{}".utf8))
+        let h = try DownloadHarness(metadataFetcher: { track, scope in
+            await gate.wait(track.id)
+            if succeeds, !Task.isCancelled {
+                try? await metadata?.save(lyrics: lyrics, trackID: track.id, scope: scope)
+            }
+        })
+        metadata = h.metadata
+        defer { gate.releaseAll(); h.close() }
+        _ = try await h.restoreMetadataJobs(count: 5)
+        try await waitForDownload { gate.started.count == 2 }
+        try await Task.sleep(for: .milliseconds(30))
+        #expect(gate.active.count == 2)
+        #expect(gate.started.count == 2)
+        for expected in 3...5 {
+            gate.release(try #require(gate.active.first))
+            try await waitForDownload { gate.started.count == expected }
+        }
+        gate.releaseAll()
+        try await waitForDownload { gate.active.isEmpty }
+        if succeeds {
+            try await waitForDownload { h.manager.jobs.allSatisfy { !$0.metadataPending } }
+        }
+        try await Task.sleep(for: .milliseconds(30))
+        #expect(gate.peak == 2)
+        #expect(gate.started.count == 5)
+        #expect(h.manager.jobs.allSatisfy { $0.metadataPending == !succeeds })
+    }
+
+    @Test func cancellingQueuedAndActiveMetadataJobsFillsTheFreedSlot() async throws {
+        let gate = DownloadMetadataGate()
+        let h = try DownloadHarness(metadataFetcher: { track, _ in await gate.wait(track.id) })
+        defer { gate.releaseAll(); h.close() }
+        let jobs = try await h.restoreMetadataJobs(count: 5)
+        try await waitForDownload { gate.started.count == 2 }
+        let queued = try #require(jobs.first { !gate.started.contains($0.track.id) })
+        let active = try #require(jobs.first { gate.active.contains($0.track.id) })
+        await h.manager.cancel(queued.id)
+        await h.manager.cancel(active.id)
+        try await waitForDownload { gate.started.count == 3 }
+        #expect(!gate.started.contains(queued.track.id))
+        gate.releaseAll()
+        try await waitForDownload { gate.started.count == 4 }
+        gate.releaseAll()
+        try await waitForDownload { gate.active.isEmpty }
+        try await Task.sleep(for: .milliseconds(30))
+        #expect(Set(gate.started).count == 4)
+        #expect(!gate.started.contains(queued.track.id))
+        #expect(!h.manager.jobs.contains { $0.id == active.id || $0.id == queued.id })
+    }
+
+    @Test(arguments: ["account", "shutdown"])
+    func metadataQueueStopsWithItsAccountOrManager(action: String) async throws {
+        let gate = DownloadMetadataGate()
+        let h = try DownloadHarness(metadataFetcher: { track, _ in await gate.wait(track.id) })
+        defer { gate.releaseAll(); h.close() }
+        _ = try await h.restoreMetadataJobs(count: 5)
+        try await waitForDownload { gate.started.count == 2 }
+        if action == "account" { h.manager.activate(accountScope: "another") }
+        else { h.manager.shutdown() }
+        try await waitForDownload { gate.active.isEmpty }
+        try await Task.sleep(for: .milliseconds(30))
+        #expect(gate.started.count == 2)
+    }
+
+    @Test(arguments: [true, false])
+    func completionFetchesOnlyMissingMetadata(firstFetchSucceeds: Bool) async throws {
+        var calls = 0
+        var firstFetchFinished = false
+        var metadata: OfflineMetadataStore?
+        let lyrics = try JSONDecoder().decode(LyricResponse.self, from: Data("{}".utf8))
+        let h = try DownloadHarness(metadataFetcher: { track, scope in
+            calls += 1
+            if firstFetchSucceeds || calls > 1 {
+                try? await metadata?.save(lyrics: lyrics, trackID: track.id, scope: scope)
+            }
+        })
+        metadata = h.metadata
+        defer { h.close() }
+        // The post-fetch publication marks completion even when missing data
+        // leaves metadataPending true, so finishing audio cannot race the fetch.
+        let subscription = h.manager.$jobs.sink { jobs in
+            if calls == 1, jobs.first?.status == .downloading,
+               jobs.first?.metadataPending == !firstFetchSucceeds {
+                firstFetchFinished = true
+            }
+        }
+        defer { subscription.cancel() }
+        await h.enqueue()
+        try await waitForDownload { firstFetchFinished && h.transport.started.count == 1 }
+        let transfer = h.transport.started[0]
+        try h.transport.finish(transfer)
+        let receipt = h.transport.inbox.appendingPathComponent("\(transfer.token).json")
+        try await waitForDownload {
+            h.manager.jobs.first?.status == .complete && h.manager.jobs.first?.metadataPending == false
+                && !FileManager.default.fileExists(atPath: receipt.path)
+        }
+        // Give an erroneously scheduled second fetch time to publish its result.
+        try await Task.sleep(for: .milliseconds(30))
+        #expect(calls == (firstFetchSucceeds ? 1 : 2))
+    }
+
     @Test func activatingAnAccountPublishesAndPersistsReconciledDownloads() async throws {
         let h = try DownloadHarness()
         defer { h.close() }
